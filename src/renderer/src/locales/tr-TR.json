@@ -77,6 +77,7 @@
   "multiselect.count": "{0} seçildi",
   "folder.markAllRead": "Tümünü Okundu İşaretle",
   "folder.refresh": "Yenile",
+  "folder.refreshing": "Yenileniyor…",
   "folder.emptyFolder": "Klasörü Boşalt",
   "folder.emptyTrash": "Çöp Kutusunu Boşalt",
   "folder.emptyJunk": "Spam'ı Boşalt",

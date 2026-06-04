@@ -7,7 +7,8 @@ import {
   getSyncState,
   getAttachmentsMeta, markAttachmentDownloaded,
   upsertContact, getContacts, searchContacts, deleteContacts,
-  upsertEvent, getEvents, deleteEvents
+  upsertEvent, getEvents, deleteEvents,
+  removeMessages, toggleMessageFlag, persistDBImmediate
 } from './store/db.js'
 import { saveCredentials, getCredentials, deleteCredentials, listStoredEmails } from './auth/index.js'
 import { ImapClient } from './imap/client.js'
@@ -18,6 +19,7 @@ import { logContact, logErr } from './logger.js'
 import { initUpdater } from './updater.js'
 import { replayPendingSyncOperations } from './startupSync.js'
 import { enqueueSyncOperation, updateMessageOptimistic, rollbackOptimisticUpdate } from './syncQueue.js'
+import { startSyncRunner, stopSyncRunner } from './syncRunner.js'
 
 // In dev mode, isolate data from the production install
 if (process.env.ELECTRON_RENDERER_URL) {
@@ -35,6 +37,21 @@ let tray = null
 const imapClients = new Map()   // email → ImapClient
 const unreadCounts = new Map()  // email → number
 const viewerDataStore = new Map()
+
+function getSubWindowTheme() {
+  let theme = 'light'
+  try { theme = getSettings().theme || 'light' } catch { /* use default */ }
+  if (theme === 'dark') {
+    return {
+      backgroundColor: '#1c1c1e',
+      titleBarOverlay: { color: '#1c1c1e', symbolColor: '#8e8e93', height: 32 }
+    }
+  }
+  return {
+    backgroundColor: '#f5f5f7',
+    titleBarOverlay: { color: '#f5f5f7', symbolColor: '#6e6e73', height: 32 }
+  }
+}
 
 function getResourcePath(filename) {
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -121,12 +138,8 @@ function createWindow() {
   _attachExternalLinkHandler(mainWindow)
 
   mainWindow.once('ready-to-show', () => {
-    // Only hide window if OS launched the app silently at login
-    const wasOpenedAsHidden = app.getLoginItemSettings().wasOpenedAsHidden
-    if (!wasOpenedAsHidden) {
-      mainWindow.show()
-      mainWindow.focus()
-    }
+    mainWindow.show()
+    mainWindow.focus()
   })
 
   mainWindow.on('close', (e) => {
@@ -431,17 +444,12 @@ ipcMain.handle('imap:fetch-body', async (_e, folder, uid, email) => {
 
 ipcMain.handle('imap:mark-read', async (_e, folder, uid, read, email) => {
   try {
-    // Optimistic update: update local DB immediately
     const flags = read ? ['\\Seen'] : []
-    updateMessageOptimistic(folder, uid, { flags })
-
-    // Enqueue the IMAP operation for background processing
+    updateMessageOptimistic(folder, uid, { flags }, { immediate: true })
     enqueueSyncOperation('setFlags', 'message',
       { flag: '\\Seen', add: read },
       { accountEmail: email, folder, uid }
     )
-
-    // Return immediately for sub-50ms UI response
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -449,10 +457,13 @@ ipcMain.handle('imap:mark-read', async (_e, folder, uid, read, email) => {
 })
 
 ipcMain.handle('imap:star-message', async (_e, folder, uid, starred, email) => {
-  const imapClient = getClient(email)
-  if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    await imapClient.setFlag(folder, uid, '\\Flagged', starred)
+    toggleMessageFlag(folder, uid, '\\Flagged', starred)
+    persistDBImmediate()
+    enqueueSyncOperation('setFlags', 'message',
+      { flag: '\\Flagged', add: starred },
+      { accountEmail: email, folder, uid }
+    )
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -460,10 +471,13 @@ ipcMain.handle('imap:star-message', async (_e, folder, uid, starred, email) => {
 })
 
 ipcMain.handle('imap:move-message', async (_e, folder, uid, destination, email) => {
-  const imapClient = getClient(email)
-  if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    await imapClient.moveMessage(folder, uid, destination)
+    removeMessages([uid], folder)
+    persistDBImmediate()
+    enqueueSyncOperation('moveMessage', 'message',
+      { destination },
+      { accountEmail: email, folder, uid }
+    )
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -471,10 +485,13 @@ ipcMain.handle('imap:move-message', async (_e, folder, uid, destination, email) 
 })
 
 ipcMain.handle('imap:delete-message', async (_e, folder, uid, permanent, email) => {
-  const imapClient = getClient(email)
-  if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    await imapClient.deleteMessage(folder, uid, permanent)
+    removeMessages([uid], folder)
+    persistDBImmediate()
+    enqueueSyncOperation('deleteMessage', 'message',
+      { permanent },
+      { accountEmail: email, folder, uid }
+    )
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -482,10 +499,13 @@ ipcMain.handle('imap:delete-message', async (_e, folder, uid, permanent, email) 
 })
 
 ipcMain.handle('imap:mark-junk', async (_e, folder, uid, isJunk, email) => {
-  const imapClient = getClient(email)
-  if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    await imapClient.markJunk(folder, uid, isJunk)
+    removeMessages([uid], folder)
+    persistDBImmediate()
+    enqueueSyncOperation('markJunk', 'message',
+      { isJunk },
+      { accountEmail: email, folder, uid }
+    )
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -548,10 +568,13 @@ ipcMain.handle('imap:empty-folder', async (_e, folder, email) => {
 })
 
 ipcMain.handle('imap:bulk-set-flag', async (_e, folder, uids, flag, add, email) => {
-  const imapClient = getClient(email)
-  if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    await imapClient.bulkSetFlag(folder, uids, flag, add)
+    for (const uid of uids) toggleMessageFlag(folder, uid, flag, add)
+    persistDBImmediate()
+    enqueueSyncOperation('bulkSetFlags', 'message',
+      { uids, flag, add },
+      { accountEmail: email, folder }
+    )
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -559,10 +582,13 @@ ipcMain.handle('imap:bulk-set-flag', async (_e, folder, uids, flag, add, email) 
 })
 
 ipcMain.handle('imap:bulk-delete', async (_e, folder, uids, email) => {
-  const imapClient = getClient(email)
-  if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    await imapClient.bulkDelete(folder, uids)
+    removeMessages(uids, folder)
+    persistDBImmediate()
+    enqueueSyncOperation('bulkDelete', 'message',
+      { uids },
+      { accountEmail: email, folder }
+    )
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -570,10 +596,13 @@ ipcMain.handle('imap:bulk-delete', async (_e, folder, uids, email) => {
 })
 
 ipcMain.handle('imap:bulk-move', async (_e, folder, uids, destination, email) => {
-  const imapClient = getClient(email)
-  if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    await imapClient.bulkMove(folder, uids, destination)
+    removeMessages(uids, folder)
+    persistDBImmediate()
+    enqueueSyncOperation('bulkMove', 'message',
+      { uids, destination },
+      { accountEmail: email, folder }
+    )
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -865,6 +894,10 @@ ipcMain.handle('calendar:clear', async (_e, email) => {
 
 // ── Window controls ───────────────────────────────────────────────────────────
 
+ipcMain.handle('window:set-title', (event, title) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (win) win.setTitle(String(title))
+})
 ipcMain.handle('window:minimize', () => mainWindow?.minimize())
 ipcMain.handle('window:maximize', () => {
   if (mainWindow?.isMaximized()) mainWindow.unmaximize()
@@ -881,6 +914,7 @@ ipcMain.handle('window:open-message', async (_e, msg) => {
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2)
     viewerDataStore.set(id, msg)
 
+    const { backgroundColor: vBg, titleBarOverlay: vOverlay } = getSubWindowTheme()
     const viewerWindow = new BrowserWindow({
       width: 820,
       height: 720,
@@ -888,13 +922,9 @@ ipcMain.handle('window:open-message', async (_e, msg) => {
       minHeight: 480,
       frame: false,
       icon: getResourcePath('icon.ico'),
-      backgroundColor: '#f5f5f7',
+      backgroundColor: vBg,
       titleBarStyle: 'hidden',
-      titleBarOverlay: {
-        color: '#f5f5f7',
-        symbolColor: '#333333',
-        height: 32
-      },
+      titleBarOverlay: vOverlay,
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),
         contextIsolation: true,
@@ -932,6 +962,7 @@ ipcMain.handle('window:open-compose', async (_e, data) => {
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2)
     viewerDataStore.set(id, data)
 
+    const { backgroundColor: cBg, titleBarOverlay: cOverlay } = getSubWindowTheme()
     const composeWindow = new BrowserWindow({
       width: 740,
       height: 640,
@@ -939,13 +970,9 @@ ipcMain.handle('window:open-compose', async (_e, data) => {
       minHeight: 480,
       frame: false,
       icon: getResourcePath('icon.ico'),
-      backgroundColor: '#f5f5f7',
+      backgroundColor: cBg,
       titleBarStyle: 'hidden',
-      titleBarOverlay: {
-        color: '#f5f5f7',
-        symbolColor: '#333333',
-        height: 32
-      },
+      titleBarOverlay: cOverlay,
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),
         contextIsolation: true,
@@ -1102,10 +1129,12 @@ app.whenReady().then(async () => {
     })
   }
 
-  // Replay pending sync operations after clients are set up
+  // Replay pending sync operations, then start the background runner
   setTimeout(() => {
     replayPendingSyncOperations(imapClients).catch(err => {
       console.error('Startup sync failed:', err.message)
+    }).finally(() => {
+      startSyncRunner(imapClients)
     })
   }, 2000) // Wait 2 seconds for IMAP connections to establish
 })
@@ -1115,6 +1144,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', async () => {
+  stopSyncRunner()
   for (const client of imapClients.values()) {
     await client.disconnect().catch(() => {})
   }

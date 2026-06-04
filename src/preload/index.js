@@ -103,6 +103,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // ── Window controls ─────────────────────────────────────────────────────────
   window: {
+    setTitle: (title) => ipcRenderer.invoke('window:set-title', title),
     minimize: () => ipcRenderer.invoke('window:minimize'),
     maximize: () => ipcRenderer.invoke('window:maximize'),
     close: () => ipcRenderer.invoke('window:close'),
@@ -149,7 +150,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // ── Push events (main → renderer) ───────────────────────────────────────────
   on: (channel, callback) => {
-    const allowed = ['imap:new-mail', 'imap:connection-status', 'imap:sync-complete', 'imap:flags-updated', 'open-compose', 'imap:notification-click', 'updater:status', 'sync:operation-start', 'sync:operation-end']
+    const allowed = ['imap:new-mail', 'imap:connection-status', 'imap:sync-complete', 'imap:flags-updated', 'open-compose', 'imap:notification-click', 'updater:status', 'sync:operation-start', 'sync:operation-end', 'sync:operation-failed', 'sync:rollback']
     if (!allowed.includes(channel)) return
     const sub = (_event, ...args) => callback(...args)
     ipcRenderer.on(channel, sub)

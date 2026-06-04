@@ -27,6 +27,9 @@ function initials(name, email) {
 function ContactRow({ contact, selected, onClick }) {
   const bg = avatarColor(contact.display_name || contact.email)
   const ini = initials(contact.display_name, contact.email)
+  const hasEmail = !!(contact.email)
+  const subtitle = contact.organization || (contact.display_name ? contact.email : null)
+
   return (
     <div
       className={`contact-row${selected ? ' active' : ''}`}
@@ -37,10 +40,10 @@ function ContactRow({ contact, selected, onClick }) {
     >
       <div className="contact-row__avatar" style={{ background: bg }}>{ini}</div>
       <div className="contact-row__info">
-        <div className="contact-row__name">{contact.display_name || contact.email}</div>
-        {contact.email && contact.display_name && (
-          <div className="contact-row__email">{contact.email}</div>
-        )}
+        <div className="contact-row__name">
+          {contact.display_name || contact.email}
+        </div>
+        {subtitle && <div className="contact-row__email">{subtitle}</div>}
       </div>
     </div>
   )

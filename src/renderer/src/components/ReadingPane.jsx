@@ -115,15 +115,16 @@ function AddressChip({ address, onCompose, large }) {
   const email = a.email || ''
   const color = addrColor(a.name || email)
   const ini = getInitials(a.name, email)
+  const interactive = !!onCompose
 
   return (
     <div
-      className={`address-chip${large ? ' address-chip--large' : ''}`}
+      className={`address-chip${large ? ' address-chip--large' : ''}${interactive ? ' address-chip--interactive' : ''}`}
       title={email}
-      onClick={() => onCompose?.(email)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={e => e.key === 'Enter' && onCompose?.(email)}
+      onClick={interactive ? () => onCompose(email) : undefined}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onKeyDown={interactive ? e => e.key === 'Enter' && onCompose(email) : undefined}
     >
       <div className="address-chip__avatar" style={{ background: color }}>{ini}</div>
       <span className="address-chip__name">{a.name || email}</span>
@@ -539,7 +540,7 @@ export default function ReadingPane() {
                 <span className="reading-pane__recipients-label">{t('reading.to')}</span>
                 <div className="reading-pane__chips">
                   {(msg.to_addresses || []).map((a, i) => (
-                    <AddressChip key={i} address={a} onCompose={em => window.api.window.openCompose({ mode: 'new', to: em })} />
+                    <AddressChip key={i} address={a} />
                   ))}
                 </div>
               </div>

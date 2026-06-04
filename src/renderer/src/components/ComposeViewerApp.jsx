@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { locales } from '../i18n/index'
 import RichTextEditor from './RichTextEditor'
+import ContactPickerModal from './ContactPickerModal'
 import {
-  IconClose, IconAttach, IconSend
+  IconClose, IconAttach, IconSend, IconContacts
 } from './Icons'
 
 function buildReplyBody(mode, msg, body) {
@@ -37,58 +38,125 @@ function buildReplyTo(mode, msg, selfEmail) {
   return ''
 }
 
-function RecipientField({ label, value, onChange, placeholder, trailing, contacts }) {
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((email || '').trim())
+}
+
+function parseAddressString(input) {
+  if (!input || typeof input !== 'string') return []
+  const addresses = []
+  const parts = input.split(/[,;](?![^<]*>)/).map(s => s.trim()).filter(Boolean)
+  for (const part of parts) {
+    const named = part.match(/^(.+?)\s*<([^>]+)>$/)
+    if (named) {
+      const name = named[1].trim().replace(/^["']|["']$/g, '')
+      const email = named[2].trim()
+      addresses.push({ name, address: email, isValid: isValidEmail(email) })
+    } else {
+      addresses.push({ name: '', address: part.trim(), isValid: isValidEmail(part.trim()) })
+    }
+  }
+  return addresses
+}
+
+function formatAddresses(addresses) {
+  return (addresses || []).map(a => a.name ? `${a.name} <${a.address}>` : a.address).join(', ')
+}
+
+function AddressChip({ address, onRemove }) {
+  return (
+    <span className={`address-chip${!address.isValid ? ' address-chip--invalid' : ''}`}>
+      <span className="address-chip__text">
+        {address.name ? `${address.name} <${address.address}>` : address.address}
+      </span>
+      <button className="address-chip__remove" onClick={onRemove} type="button" aria-label="Rimuovi">×</button>
+    </span>
+  )
+}
+
+function RecipientField({ label, addresses, onChange, placeholder, trailing, contacts }) {
   const [suggestions, setSuggestions] = useState([])
+  const [inputValue, setInputValue] = useState('')
   const [focused, setFocused] = useState(false)
   const wrapRef = useRef(null)
 
   useEffect(() => {
-    const q = value.split(/[,;]\s*/).pop().trim()
-    if (!q || q.length < 2 || !focused) { setSuggestions([]); return }
-    const lower = q.toLowerCase()
+    const query = inputValue.trim()
+    if (!query || query.length < 2 || !focused) { setSuggestions([]); return }
+    const lower = query.toLowerCase()
     const matches = (contacts || []).filter(c =>
       (c.display_name || '').toLowerCase().includes(lower) ||
       (c.email || '').toLowerCase().includes(lower)
     ).slice(0, 6)
     setSuggestions(matches)
-  }, [value, focused, contacts])
+  }, [inputValue, focused, contacts])
 
   useEffect(() => {
-    function close(e) { if (wrapRef.current && !wrapRef.current.contains(e.target)) setSuggestions([]) }
+    function close(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setSuggestions([])
+        parseAndAdd()
+      }
+    }
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
-  }, [])
+  }, [inputValue])
+
+  function parseAndAdd() {
+    if (!inputValue.trim()) return
+    const newAddrs = parseAddressString(inputValue)
+    if (newAddrs.length) { onChange([...addresses, ...newAddrs]); setInputValue(''); setSuggestions([]) }
+  }
 
   function pickContact(contact) {
-    const email = contact.email || ''
-    const display = contact.display_name ? `${contact.display_name} <${email}>` : email
-    const parts = value.split(/[,;]\s*/)
-    parts[parts.length - 1] = display
-    onChange(parts.join(', ') + ', ')
+    onChange([...addresses, { name: contact.display_name || '', address: contact.email, isValid: true }])
+    setInputValue('')
     setSuggestions([])
+  }
+
+  function handleKeyDown(e) {
+    if (['Enter', 'Tab', ',', ';'].includes(e.key)) {
+      e.preventDefault()
+      parseAndAdd()
+    } else if (e.key === 'Backspace' && !inputValue && addresses.length > 0) {
+      onChange(addresses.slice(0, -1))
+    }
+  }
+
+  function handlePaste(e) {
+    e.preventDefault()
+    const text = (e.clipboardData || window.clipboardData).getData('text')
+    const newAddrs = parseAddressString(text)
+    if (newAddrs.length) onChange([...addresses, ...newAddrs])
   }
 
   return (
     <div className="compose-field" ref={wrapRef} style={{ position: 'relative' }}>
       <span className="compose-field__label">{label}</span>
-      <input
-        className="compose-field__input"
-        placeholder={placeholder}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setTimeout(() => setFocused(false), 150)}
-        autoComplete="off"
-      />
+      <div className="compose-field__chip-input">
+        {addresses.map((addr, i) => (
+          <AddressChip key={i} address={addr} onRemove={() => onChange(addresses.filter((_, j) => j !== i))} />
+        ))}
+        <input
+          className="compose-field__input"
+          placeholder={addresses.length === 0 ? placeholder : ''}
+          value={inputValue}
+          onChange={e => setInputValue(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setTimeout(() => setFocused(false), 150)}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          autoComplete="off"
+          style={{ border: 'none', outline: 'none', flex: 1, minWidth: '120px' }}
+        />
+      </div>
       {trailing}
       {suggestions.length > 0 && (
         <div className="compose-autocomplete">
           {suggestions.map((c, i) => (
             <div key={i} className="compose-autocomplete__item" onMouseDown={() => pickContact(c)}>
               <span className="compose-autocomplete__name">{c.display_name || c.email}</span>
-              {c.display_name && c.email && (
-                <span className="compose-autocomplete__email">{c.email}</span>
-              )}
+              {c.display_name && c.email && <span className="compose-autocomplete__email">{c.email}</span>}
             </div>
           ))}
         </div>
@@ -103,9 +171,9 @@ export default function ComposeViewerApp({ composeData }) {
   const [settings, setSettings] = useState({ theme: 'light', signature: '', language: 'en-US' })
   const [contacts, setContacts] = useState([])
   const [accountEmail, setAccountEmail] = useState('')
-  const [to, setTo] = useState(initialTo || (msg && mode !== 'new' ? buildReplyTo(mode, msg, '') : ''))
-  const [cc, setCc] = useState('')
-  const [bcc, setBcc] = useState('')
+  const [to, setTo] = useState(() => parseAddressString(initialTo || (msg && mode !== 'new' ? buildReplyTo(mode, msg, '') : '')))
+  const [cc, setCc] = useState([])
+  const [bcc, setBcc] = useState([])
   const [subject, setSubject] = useState(msg && mode !== 'new' ? buildReplySubject(mode, msg.subject) : '')
   const [showCcBcc, setShowCcBcc] = useState(mode === 'replyAll')
   const [sending, setSending] = useState(false)
@@ -115,8 +183,16 @@ export default function ComposeViewerApp({ composeData }) {
   const [draftId, setDraftId] = useState(null)
   const [bodyVersion, setBodyVersion] = useState(0)
   const [contextMenu, setContextMenu] = useState(null)
+  const [showPicker, setShowPicker] = useState(false)
   const draftTimer = useRef(null)
   const editorRef = useRef(null)
+
+  function handlePickerAdd(picks, field) {
+    const newAddrs = picks.map(c => ({ name: c.display_name || '', address: c.email, isValid: true }))
+    const setters = { to: setTo, cc: setCc, bcc: setBcc }
+    setters[field](prev => [...prev, ...newAddrs])
+    if (field === 'cc' || field === 'bcc') setShowCcBcc(true)
+  }
 
   useEffect(() => {
     window.api.settings.get().then(r => {
@@ -126,9 +202,9 @@ export default function ComposeViewerApp({ composeData }) {
       if (r.ok && r.creds) {
         const email = r.creds.email
         setAccountEmail(email)
-        if (msg && mode === 'replyAll') setTo(buildReplyTo(mode, msg, email))
+        if (msg && mode === 'replyAll') setTo(parseAddressString(buildReplyTo(mode, msg, email)))
         window.api.contacts.list(email).then(res => {
-          if (res.ok) setContacts(res.contacts || [])
+          if (res.ok) setContacts((res.contacts || []).filter(c => c.email && c.email.includes('@')))
         })
       }
     })
@@ -181,14 +257,14 @@ export default function ComposeViewerApp({ composeData }) {
     clearTimeout(draftTimer.current)
     draftTimer.current = setTimeout(async () => {
       const html = editorContent || ''
-      if (!to && !subject && html === '<p></p>') return
+      if (to.length === 0 && !subject && html === '<p></p>') return
       const draft = {
         id: draftId || undefined,
         account_email: accountEmail,
         subject,
-        to_field: to,
-        cc_field: cc,
-        bcc_field: bcc,
+        to_field: formatAddresses(to),
+        cc_field: formatAddresses(cc),
+        bcc_field: formatAddresses(bcc),
         body_html: html,
         in_reply_to: msg?.message_id || null,
         message_refs: msg?.message_id || null,
@@ -201,7 +277,7 @@ export default function ComposeViewerApp({ composeData }) {
   }, [to, cc, bcc, subject, attachments, accountEmail, bodyVersion, draftId])
 
   async function handleSend() {
-    if (!to.trim()) { setError('compose.error.noRecipient'); return }
+    if (to.length === 0) { setError('compose.error.noRecipient'); return }
     if (!subject.trim()) { setError('compose.error.noSubject'); return }
     setSending(true)
     setError(null)
@@ -219,7 +295,7 @@ export default function ComposeViewerApp({ composeData }) {
     const fromName = creds.creds.email
 
     const mailOptions = {
-      to, cc: cc || undefined, bcc: bcc || undefined,
+      to: formatAddresses(to), cc: cc.length ? formatAddresses(cc) : undefined, bcc: bcc.length ? formatAddresses(bcc) : undefined,
       subject, html, text,
       fromName,
       inReplyTo: msg?.message_id || undefined,
@@ -245,9 +321,9 @@ export default function ComposeViewerApp({ composeData }) {
       id: draftId || undefined,
       account_email: accountEmail,
       subject,
-      to_field: to,
-      cc_field: cc,
-      bcc_field: bcc,
+      to_field: formatAddresses(to),
+      cc_field: formatAddresses(cc),
+      bcc_field: formatAddresses(bcc),
       body_html: html,
       in_reply_to: msg?.message_id || null,
       message_refs: msg?.message_id || null,
@@ -310,30 +386,43 @@ export default function ComposeViewerApp({ composeData }) {
 
   return (
     <div className={`app-root theme-${theme} viewer-window`} onClick={() => setContextMenu(null)}>
-      {/* Drag region for the native titlebar overlay area */}
-      <div style={{ position: 'fixed', top: 0, left: 0, right: 150, height: 32, WebkitAppRegion: 'drag', zIndex: 9999 }} />
+      {/* Drag region with title for the native titlebar overlay area */}
+      <div style={{ position: 'fixed', top: 0, left: 0, right: 150, height: 32, WebkitAppRegion: 'drag', zIndex: 9999, display: 'flex', alignItems: 'center', paddingLeft: 16 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', userSelect: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.85 }}>
+          {windowTitle}
+        </span>
+      </div>
       <div className="compose-window compose-window--standalone">
-        <div className="compose-window__header">
-          <span className="compose-window__title truncate">{windowTitle}</span>
-        </div>
 
+        {showPicker && (
+          <ContactPickerModal
+            contacts={contacts}
+            onAdd={handlePickerAdd}
+            onClose={() => setShowPicker(false)}
+          />
+        )}
         <div className="compose-window__fields">
           <RecipientField
             label={t('compose.to')}
-            value={to}
+            addresses={to}
             onChange={setTo}
             placeholder={t('compose.recipientPlaceholder')}
             contacts={contacts}
             trailing={
-              <button className="compose-field__cc-toggle" onClick={() => setShowCcBcc(v => !v)} title={t('compose.ccBcc')}>
-                {t('compose.ccBcc')}
-              </button>
+              <>
+                <button className="compose-field__icon-btn" onClick={() => setShowPicker(true)} title="Rubrica">
+                  <IconContacts size={14} />
+                </button>
+                <button className="compose-field__cc-toggle" onClick={() => setShowCcBcc(v => !v)} title={t('compose.ccBcc')}>
+                  {t('compose.ccBcc')}
+                </button>
+              </>
             }
           />
           {showCcBcc && (
             <>
-              <RecipientField label={t('compose.cc')} value={cc} onChange={setCc} placeholder={t('compose.ccPlaceholder')} contacts={contacts} />
-              <RecipientField label={t('compose.bcc')} value={bcc} onChange={setBcc} placeholder={t('compose.bccPlaceholder')} contacts={contacts} />
+              <RecipientField label={t('compose.cc')} addresses={cc} onChange={setCc} placeholder={t('compose.ccPlaceholder')} contacts={contacts} />
+              <RecipientField label={t('compose.bcc')} addresses={bcc} onChange={setBcc} placeholder={t('compose.bccPlaceholder')} contacts={contacts} />
             </>
           )}
           <div className="compose-field">
@@ -399,7 +488,7 @@ export default function ComposeViewerApp({ composeData }) {
           <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
             <button className="btn btn--ghost" onClick={handleSaveDraft}>{t('compose.saveDraft')}</button>
             <button className="btn btn--ghost" onClick={() => window.close()}>{t('compose.discard')}</button>
-            <button className="btn btn--primary" onClick={handleSend} disabled={sending || sent || !to.trim()}>
+            <button className="btn btn--primary" onClick={handleSend} disabled={sending || sent || to.length === 0}>
               {sending ? (
                 <><span className="spinner" style={{ width: 14, height: 14 }} />{t('compose.sending')}</>
               ) : (

@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
 import RichTextEditor from './RichTextEditor'
+import ContactPickerModal from './ContactPickerModal'
 import {
-  IconClose, IconAttach, IconSend
+  IconClose, IconAttach, IconSend, IconContacts
 } from './Icons'
 
 function buildReplyBody(mode, msg, body) {
@@ -117,7 +118,7 @@ function RecipientField({ label, addresses, onChange, placeholder, trailing }) {
   useEffect(() => {
     const query = inputValue.trim()
     if (!query || query.length < 2 || !focused) { setSuggestions([]); return }
-    const contacts = state.contacts?.list || []
+    const contacts = (state.contacts?.list || []).filter(c => c.email && c.email.includes('@'))
     const lower = query.toLowerCase()
     const matches = contacts.filter(c =>
       (c.display_name || '').toLowerCase().includes(lower) ||
@@ -262,8 +263,23 @@ export default function ComposeWindow() {
   const [attachments, setAttachments] = useState([])
   const [draftId, setDraftId] = useState(null)
   const [bodyVersion, setBodyVersion] = useState(0)
+  const [showPicker, setShowPicker] = useState(false)
   const draftTimer = useRef(null)
   const editorRef = useRef(null)
+
+  const contactsWithEmail = (state.contacts?.list || []).filter(c => c.email && c.email.includes('@'))
+
+  function handlePickerAdd(picks, field) {
+    const newAddresses = picks.map(c => ({
+      name: c.display_name || '',
+      address: c.email,
+      isValid: true,
+      display: c.display_name ? `${c.display_name} <${c.email}>` : c.email
+    }))
+    const setters = { to: setTo, cc: setCc, bcc: setBcc }
+    setters[field](prev => [...prev, ...newAddresses])
+    if (field === 'cc' || field === 'bcc') setShowCcBcc(true)
+  }
 
   const [editorContent, setEditorContent] = useState('')
 
@@ -494,6 +510,14 @@ export default function ComposeWindow() {
   return (
     <div className="compose-overlay" onClick={e => e.target === e.currentTarget && handleClose()}>
       <div className="compose-window" onClick={() => setContextMenu(null)}>
+        {showPicker && (
+          <ContactPickerModal
+            contacts={contactsWithEmail}
+            onAdd={handlePickerAdd}
+            onClose={() => setShowPicker(false)}
+          />
+        )}
+
         {/* Header */}
         <div className="compose-window__header">
           <span className="compose-window__title truncate">{windowTitle}</span>
@@ -510,13 +534,18 @@ export default function ComposeWindow() {
             onChange={setTo}
             placeholder={t('compose.recipientPlaceholder')}
             trailing={
-              <button
-                className="compose-field__cc-toggle"
-                onClick={() => setShowCcBcc(v => !v)}
-                title={t('compose.ccBcc')}
-              >
-                {t('compose.ccBcc')}
-              </button>
+              <>
+                <button className="compose-field__icon-btn" onClick={() => setShowPicker(true)} title="Rubrica">
+                  <IconContacts size={14} />
+                </button>
+                <button
+                  className="compose-field__cc-toggle"
+                  onClick={() => setShowCcBcc(v => !v)}
+                  title={t('compose.ccBcc')}
+                >
+                  {t('compose.ccBcc')}
+                </button>
+              </>
             }
           />
 

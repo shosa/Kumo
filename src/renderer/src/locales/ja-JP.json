@@ -77,6 +77,7 @@
   "multiselect.count": "{0}件選択中",
   "folder.markAllRead": "すべて既読にする",
   "folder.refresh": "更新",
+  "folder.refreshing": "更新中…",
   "folder.emptyFolder": "フォルダを空にする",
   "folder.emptyTrash": "ゴミ箱を空にする",
   "folder.emptyJunk": "迷惑メールを空にする",

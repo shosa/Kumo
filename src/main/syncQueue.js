@@ -1,4 +1,4 @@
-import { getDB } from './store/db.js'
+import { getDB, persistDBImmediate } from './store/db.js'
 import { logSync, logErr } from './logger.js'
 import { BrowserWindow } from 'electron'
 
@@ -38,11 +38,14 @@ export function enqueueSyncOperation(operation, targetType, data, options = {}) 
 
 export function dequeuePendingOperations() {
   const d = getDB()
+  const now = Date.now()
   const stmt = d.prepare(`
     SELECT * FROM sync_queue
+    WHERE next_retry_at IS NULL OR next_retry_at <= ?
     ORDER BY created_at ASC
     LIMIT 50
   `)
+  stmt.bind([now])
   const operations = []
   while (stmt.step()) {
     const row = stmt.getAsObject()
@@ -68,16 +71,44 @@ export function markSyncOperationCompleted(id) {
 
 export function markSyncOperationFailed(id, error) {
   const d = getDB()
+
+  const stmt = d.prepare(`SELECT retry_count, operation, folder, uid FROM sync_queue WHERE id = ?`)
+  stmt.bind([id])
+  let op = null
+  if (stmt.step()) op = stmt.getAsObject()
+  stmt.free()
+  if (!op) return
+
+  const newRetryCount = (op.retry_count || 0) + 1
+
+  if (newRetryCount >= 5) {
+    const mainWindow = BrowserWindow.getAllWindows().find(w => !w.isDestroyed())
+    if (mainWindow) {
+      mainWindow.webContents.send('sync:operation-failed', {
+        operation: op.operation,
+        uid: op.uid,
+        folder: op.folder,
+        error
+      })
+      mainWindow.webContents.send('sync:operation-end')
+    }
+    d.run(`DELETE FROM sync_queue WHERE id = ?`, [id])
+    logErr(`[SyncQueue] Dead-lettered ${op.operation} after ${newRetryCount} retries: ${error}`)
+    return
+  }
+
+  const nextRetryAt = Date.now() + Math.min(Math.pow(2, newRetryCount) * 2000, 60000)
   d.run(`
     UPDATE sync_queue
-    SET retry_count = retry_count + 1, last_error = ?
+    SET retry_count = ?, last_error = ?, next_retry_at = ?
     WHERE id = ?
-  `, [error, id])
+  `, [newRetryCount, error, nextRetryAt, id])
+  logErr(`[SyncQueue] Failed ${op.operation} (retry ${newRetryCount}), next attempt in ${Math.round((nextRetryAt - Date.now()) / 1000)}s`)
 }
 
 export function clearFailedOperations() {
   const d = getDB()
-  d.run(`DELETE FROM sync_queue WHERE retry_count >= 3`)
+  d.run(`DELETE FROM sync_queue WHERE retry_count >= 5`)
 }
 
 // Outbox operations for optimistic email sending
@@ -164,7 +195,7 @@ export function markOutboxEmailFailed(id, error) {
 }
 
 // Optimistic local operations
-export function updateMessageOptimistic(folder, uid, updates) {
+export function updateMessageOptimistic(folder, uid, updates, options = {}) {
   const d = getDB()
   const setClauses = []
   const values = []
@@ -189,6 +220,10 @@ export function updateMessageOptimistic(folder, uid, updates) {
     SET ${setClauses.join(', ')}
     WHERE folder = ? AND uid = ?
   `, values)
+
+  if (options.immediate) {
+    persistDBImmediate()
+  }
 }
 
 export function rollbackOptimisticUpdate(folder, uid, originalData) {

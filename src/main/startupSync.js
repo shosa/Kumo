@@ -1,6 +1,7 @@
 import { dequeuePendingOperations, markSyncOperationCompleted, markSyncOperationFailed, clearFailedOperations } from './syncQueue.js'
 import { logSync, logErr } from './logger.js'
 import { sendEmail } from './smtp/index.js'
+import { getCredentials } from './auth/index.js'
 
 // Startup sync: replay pending sync operations on app start
 export async function replayPendingSyncOperations(imapClients) {
@@ -55,6 +56,18 @@ async function processSyncOperation(operation, imapClients) {
       await processSendEmail(data, account_email)
       break
 
+    case 'bulkSetFlags':
+      await processBulkSetFlags(data, account_email, folder, imapClients)
+      break
+
+    case 'bulkDelete':
+      await processBulkDelete(data, account_email, folder, imapClients)
+      break
+
+    case 'bulkMove':
+      await processBulkMove(data, account_email, folder, imapClients)
+      break
+
     default:
       throw new Error(`Unknown sync operation: ${opType}`)
   }
@@ -93,6 +106,25 @@ async function processMarkJunk(data, accountEmail, folder, uid, imapClients) {
 }
 
 async function processSendEmail(data, accountEmail) {
-  const { email, password, mailOptions } = data
-  await sendEmail(email, password, mailOptions)
+  const creds = await getCredentials(accountEmail)
+  if (!creds) throw new Error(`No credentials found for ${accountEmail}`)
+  await sendEmail(creds.email, creds.password, data.mailOptions)
+}
+
+async function processBulkSetFlags(data, accountEmail, folder, imapClients) {
+  const client = imapClients.get(accountEmail)
+  if (!client) throw new Error(`No IMAP client for ${accountEmail}`)
+  await client.bulkSetFlag(folder, data.uids, data.flag, data.add)
+}
+
+async function processBulkDelete(data, accountEmail, folder, imapClients) {
+  const client = imapClients.get(accountEmail)
+  if (!client) throw new Error(`No IMAP client for ${accountEmail}`)
+  await client.bulkDelete(folder, data.uids)
+}
+
+async function processBulkMove(data, accountEmail, folder, imapClients) {
+  const client = imapClients.get(accountEmail)
+  if (!client) throw new Error(`No IMAP client for ${accountEmail}`)
+  await client.bulkMove(folder, data.uids, data.destination)
 }

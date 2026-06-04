@@ -77,6 +77,7 @@
   "multiselect.count": "已选择 {0} 项",
   "folder.markAllRead": "全部标为已读",
   "folder.refresh": "刷新",
+  "folder.refreshing": "刷新中…",
   "folder.emptyFolder": "清空文件夹",
   "folder.emptyTrash": "清空垃圾箱",
   "folder.emptyJunk": "清空垃圾邮件",

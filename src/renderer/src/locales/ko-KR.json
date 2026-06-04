@@ -77,6 +77,7 @@
   "multiselect.count": "{0}개 선택됨",
   "folder.markAllRead": "모두 읽음으로 표시",
   "folder.refresh": "새로 고침",
+  "folder.refreshing": "새로 고침 중…",
   "folder.emptyFolder": "폴더 비우기",
   "folder.emptyTrash": "휴지통 비우기",
   "folder.emptyJunk": "스팸 비우기",

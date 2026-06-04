@@ -77,6 +77,7 @@
   "multiselect.count": "{0} sélectionné(s)",
   "folder.markAllRead": "Tout marquer comme lu",
   "folder.refresh": "Actualiser",
+  "folder.refreshing": "Actualisation…",
   "folder.emptyFolder": "Vider le dossier",
   "folder.emptyTrash": "Vider la corbeille",
   "folder.emptyJunk": "Vider les indésirables",

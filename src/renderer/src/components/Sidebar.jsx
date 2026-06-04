@@ -148,6 +148,7 @@ export default function Sidebar() {
   const [avatarMenu, setAvatarMenu] = useState(false)
   const avatarRef = useRef(null)
   const [dragOverPath, setDragOverPath] = useState(null)
+  const [isSyncing, setIsSyncing] = useState(false)
 
   const tRef = useRef(t)
   useEffect(() => { tRef.current = t }, [t])
@@ -370,8 +371,17 @@ export default function Sidebar() {
           onKeyDown={e => e.key === 'Enter' && setAvatarMenu(v => !v)}
         >{initials}</div>
         <span style={{ flex: 1 }} />
-        <button className="btn btn--icon" onClick={async () => { await loadFolders(); await syncSelectedFolder() }} title={t('sidebar.refresh')}>
-          <IconRefresh size={16} />
+        <button
+          className="btn btn--icon"
+          onClick={async () => {
+            if (isSyncing) return
+            setIsSyncing(true)
+            try { await loadFolders(); await syncSelectedFolder() }
+            finally { setIsSyncing(false) }
+          }}
+          title={t('sidebar.refresh')}
+        >
+          <IconRefresh size={16} className={isSyncing ? 'spin' : ''} />
         </button>
       </div>
 

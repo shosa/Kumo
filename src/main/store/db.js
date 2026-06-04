@@ -19,6 +19,13 @@ function persistDB() {
   writeFileSync(dbPath, Buffer.from(data))
 }
 
+export function persistDBImmediate() {
+  if (!db || !dbPath) return
+  clearTimeout(saveTimer)
+  const data = db.export()
+  writeFileSync(dbPath, Buffer.from(data))
+}
+
 export async function initDB() {
   if (db) return db
 
@@ -128,6 +135,12 @@ export async function initDB() {
     _migrate4(db)
   } catch (err) {
     console.error('DB migration v4 error (non-fatal):', err.message)
+  }
+
+  try {
+    _migrate5(db)
+  } catch (err) {
+    console.error('DB migration v5 error (non-fatal):', err.message)
   }
 
   persistDB()
@@ -419,6 +432,20 @@ function _migrate4(d) {
   d.run(`CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox(sync_status)`)
 
   d.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('schemaVersion', '4')`)
+}
+
+function _migrate5(d) {
+  let ver = 0
+  try {
+    const s = d.prepare(`SELECT value FROM settings WHERE key = 'schemaVersion'`)
+    if (s.step()) ver = parseInt(JSON.parse(s.getAsObject().value), 10) || 0
+    s.free()
+  } catch { /* ignore */ }
+  if (ver >= 5) return
+
+  try { d.run(`ALTER TABLE sync_queue ADD COLUMN next_retry_at INTEGER`) } catch { /* already exists */ }
+  d.run(`CREATE INDEX IF NOT EXISTS idx_sync_queue_retry ON sync_queue(next_retry_at ASC)`)
+  d.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('schemaVersion', '5')`)
 }
 
 export function getDB() {
@@ -901,11 +928,9 @@ function _hydrateContact(r) {
 
 export function getContacts(accountEmail) {
   const d = getDB()
-  // Only include contacts with valid email addresses
-  const emailFilter = `email IS NOT NULL AND email != '' AND email LIKE '%@%.%' AND email NOT LIKE '%@%@%' AND LENGTH(TRIM(email)) = LENGTH(email)`
   const stmt = accountEmail
-    ? d.prepare(`SELECT * FROM contacts WHERE (account_email = ? OR account_email IS NULL) AND ${emailFilter} ORDER BY display_name ASC`)
-    : d.prepare(`SELECT * FROM contacts WHERE ${emailFilter} ORDER BY display_name ASC`)
+    ? d.prepare(`SELECT * FROM contacts WHERE (account_email = ? OR account_email IS NULL) ORDER BY display_name ASC`)
+    : d.prepare(`SELECT * FROM contacts ORDER BY display_name ASC`)
   if (accountEmail) stmt.bind([accountEmail])
   const rows = allRows(stmt)
   return rows.map(r => _hydrateContact(r))

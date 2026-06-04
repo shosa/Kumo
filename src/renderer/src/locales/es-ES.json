@@ -77,6 +77,7 @@
   "multiselect.count": "{0} seleccionados",
   "folder.markAllRead": "Marcar todo como leído",
   "folder.refresh": "Actualizar",
+  "folder.refreshing": "Actualizando…",
   "folder.emptyFolder": "Vaciar carpeta",
   "folder.emptyTrash": "Vaciar papelera",
   "folder.emptyJunk": "Vaciar spam",

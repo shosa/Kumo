@@ -727,7 +727,7 @@
   background: var(--glass-fill);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-full);
-  cursor: pointer;
+  cursor: default;
   max-width: 220px;
   transition: background var(--duration-fast) var(--ease-default),
               border-color var(--duration-fast) var(--ease-default);
@@ -735,7 +735,11 @@
   user-select: none;
 }
 
-.address-chip:hover {
+.address-chip--interactive {
+  cursor: pointer;
+}
+
+.address-chip--interactive:hover {
   background: var(--glass-fill-hover);
   border-color: var(--glass-border-light);
 }
@@ -980,6 +984,7 @@
   gap: var(--sp-3);
   border-bottom: 1px solid rgba(255,255,255,0.05);
   padding: var(--sp-3) 0;
+  flex-wrap: nowrap;
 }
 .compose-field:last-child { border-bottom: none; }
 
@@ -1138,20 +1143,46 @@
 }
 
 .compose-field__cc-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 8px;
   font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   color: var(--text-tertiary);
   background: var(--glass-fill);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
-  padding: 2px 8px;
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: background var(--duration-fast) var(--ease-default), color var(--duration-fast) var(--ease-default);
+  transition: background var(--duration-fast), color var(--duration-fast), border-color var(--duration-fast);
 }
 .compose-field__cc-toggle:hover {
   background: var(--glass-fill-hover);
-  color: var(--text-primary);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.compose-field__icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  transition: background var(--duration-fast), color var(--duration-fast), border-color var(--duration-fast);
+}
+.compose-field__icon-btn:hover {
+  background: var(--glass-fill-hover);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .compose-attachments {
@@ -1493,10 +1524,15 @@
 .theme-light .compose-field__input {
   color: #1d1d1f;
 }
-.theme-light .compose-field__cc-toggle {
+.theme-light .compose-field__cc-toggle,
+.theme-light .compose-field__icon-btn {
   background: rgba(0, 0, 0, 0.05);
   border-color: rgba(0, 0, 0, 0.15);
   color: #6e6e73;
+}
+.theme-light .compose-field__cc-toggle:hover,
+.theme-light .compose-field__icon-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
 }
 .theme-light .settings-panel {
   background: rgba(248, 248, 252, 0.98);
@@ -2058,7 +2094,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-3);
+  padding: 6px var(--sp-3);
   cursor: pointer;
   border-radius: var(--radius-md);
   margin: 1px var(--sp-2);
@@ -2074,21 +2110,26 @@
 }
 
 .contact-row__avatar {
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: var(--weight-semibold);
   color: #fff;
   flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+  letter-spacing: 0.02em;
 }
 
 .contact-row__info {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .contact-row__name {
@@ -2098,7 +2139,11 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
+
 
 .contact-row__email {
   font-size: var(--text-xs);
@@ -2465,6 +2510,174 @@
   text-overflow: ellipsis;
 }
 
+/* ── Contact Picker Modal ──────────────────────────────────────────────────── */
+
+.contact-picker-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.25);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.contact-picker {
+  background: var(--bg-layer2);
+  border: 1px solid var(--glass-border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
+  width: 340px;
+  max-height: 480px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--text-primary);
+}
+
+.contact-picker__header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-3) var(--sp-2);
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.contact-picker__search-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-full);
+  padding: 4px 8px;
+  color: var(--text-secondary);
+}
+
+.contact-picker__search {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+.contact-picker__clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  display: flex;
+  padding: 0;
+}
+
+.contact-picker__select-all {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px var(--sp-3);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 1px solid var(--glass-border);
+  user-select: none;
+}
+
+.contact-picker__select-all:hover {
+  background: var(--glass-fill-hover);
+}
+
+.contact-picker__list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-1) 0;
+}
+
+.contact-picker__empty {
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
+.contact-picker__item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 6px var(--sp-3);
+  cursor: pointer;
+  user-select: none;
+}
+
+.contact-picker__item:hover {
+  background: var(--glass-fill-hover);
+}
+
+.contact-picker__item.selected {
+  background: var(--accent-subtle);
+}
+
+.contact-picker__avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: var(--weight-semibold);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.contact-picker__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.contact-picker__name {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contact-picker__email {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.contact-picker__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-top: 1px solid var(--glass-border);
+}
+
+.contact-picker__footer-label {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-right: var(--sp-1);
+}
+
+.contact-picker__add-btn {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  padding: 4px 10px;
+  min-width: 0;
+}
+
 .theme-light .compose-autocomplete {
   background: #fff;
   box-shadow: 0 4px 20px rgba(0,0,0,0.15);
@@ -2687,6 +2900,7 @@
 /* ── Address Chips for Compose ─────────────────────────────────────────── */
 
 .compose-field__chip-input {
+  flex: 1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2696,6 +2910,7 @@
   border-radius: var(--radius-md);
   background: var(--bg-primary);
   min-height: 40px;
+  min-width: 0;
   transition: border-color var(--duration-base) var(--ease-default);
 }
 

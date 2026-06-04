@@ -77,6 +77,7 @@
   "multiselect.count": "{0} selected",
   "folder.markAllRead": "Mark All as Read",
   "folder.refresh": "Refresh",
+  "folder.refreshing": "Refreshing…",
   "folder.emptyFolder": "Empty Folder",
   "folder.emptyTrash": "Empty Trash",
   "folder.emptyJunk": "Empty Junk",
