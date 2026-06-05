@@ -3,7 +3,7 @@ import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
 import {
   IconReply, IconReplyAll, IconForward, IconStar, IconMarkRead,
-  IconTrash, IconNoSymbol, IconAttach, IconEnvelope,
+  IconTrash, IconNoSymbol, IconEnvelope, IconArchive,
   IconFileImage, IconFileDoc, IconDownload, IconClose
 } from './Icons'
 
@@ -110,38 +110,33 @@ function EmailBodyContextMenu({ isVisible, position, selectedText, selectedLink,
   )
 }
 
-function AddressChip({ address, onCompose, large }) {
-  const a = typeof address === 'string' ? { email: address, name: '' } : (address || {})
-  const email = a.email || ''
-  const color = addrColor(a.name || email)
-  const ini = getInitials(a.name, email)
-  const interactive = !!onCompose
-
-  return (
-    <div
-      className={`address-chip${large ? ' address-chip--large' : ''}${interactive ? ' address-chip--interactive' : ''}`}
-      title={email}
-      onClick={interactive ? () => onCompose(email) : undefined}
-      role={interactive ? 'button' : undefined}
-      tabIndex={interactive ? 0 : undefined}
-      onKeyDown={interactive ? e => e.key === 'Enter' && onCompose(email) : undefined}
-    >
-      <div className="address-chip__avatar" style={{ background: color }}>{ini}</div>
-      <span className="address-chip__name">{a.name || email}</span>
-      <div className="address-chip__popover">
-        {a.name && <div className="address-chip__popover-name">{a.name}</div>}
-        <div className="address-chip__popover-email">{email}</div>
-      </div>
-    </div>
-  )
-}
-
 function formatFullDate(ts) {
   if (!ts) return ''
-  return new Date(ts).toLocaleString([], {
-    weekday: 'short', month: 'short', day: 'numeric',
+  return new Date(ts).toLocaleDateString('it-IT', {
+    weekday: 'long', day: 'numeric', month: 'long',
     year: 'numeric', hour: '2-digit', minute: '2-digit'
   })
+}
+
+function attachIconColor(att) {
+  const name = (att.filename || att.name || '').toLowerCase()
+  const type = (att.type || '').toLowerCase()
+  if (type === 'application/pdf' || name.endsWith('.pdf')) return '#e5484d'
+  if (type.startsWith('image/') || /\.(jpe?g|png|gif|webp|svg|bmp)$/.test(name)) return '#30a46c'
+  if (/\.(doc|docx|xls|xlsx|ppt|pptx|odt|ods|odp)$/.test(name)) return '#0071e3'
+  return '#565c69'
+}
+
+function isImageFile(att) {
+  const name = (att.filename || att.name || '').toLowerCase()
+  return /\.(jpe?g|png|gif|webp)$/.test(name)
+}
+
+function formatSize(bytes) {
+  if (!bytes) return ''
+  if (bytes < 1024) return bytes + 'B'
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + 'KB'
+  return (bytes / 1048576).toFixed(1) + 'MB'
 }
 
 function buildSafeHTML(html, blockImages) {
@@ -360,6 +355,12 @@ export default function ReadingPane() {
     window.api.imap.deleteMessage(msg.folder, msg.uid, false)
   }
 
+  function handleArchive() {
+    if (!msg) return
+    dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
+    window.api.imap.archiveMessage?.(msg.folder, msg.uid)
+  }
+
   function handleToggleStar() {
     if (!msg) return
     const isStarred = msg.flags?.includes('\\Flagged')
@@ -384,6 +385,11 @@ export default function ReadingPane() {
     if (!msg) return
     dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
     window.api.imap.markJunk(msg.folder, msg.uid, true)
+  }
+
+  function handleLoadImages() {
+    setImagesBlocked(false)
+    setImagesLoadedByUser(true)
   }
 
   async function handlePreviewAttachment(att, idx) {
@@ -428,20 +434,13 @@ export default function ReadingPane() {
 
   if (!msg) {
     return (
-      <div className="reading-pane">
-        <div className="reading-pane__empty">
-          <div style={{ opacity: 0.2, marginBottom: 'var(--sp-3)' }}><IconEnvelope size={52} /></div>
-          <span className="reading-pane__empty-text">{t('reading.noMessage')}</span>
-          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', textAlign: 'center', maxWidth: 200 }}>
-            {t('reading.noMessageDesc')}
-          </span>
-          <button
-            className="btn btn--ghost"
-            style={{ marginTop: 'var(--sp-4)' }}
-            onClick={() => window.api.window.openCompose({ mode: 'new' })}
-          >
-            {t('action.compose')}
-          </button>
+      <div className="reader">
+        <div className="reader__empty">
+          <div className="reader__empty-mark">
+            <IconEnvelope size={30} />
+          </div>
+          <h3>Seleziona un messaggio</h3>
+          <p>Scegli un'email dall'elenco per leggerla qui. Usa ↑ ↓ per navigare.</p>
         </div>
       </div>
     )
@@ -450,6 +449,16 @@ export default function ReadingPane() {
   const isRead = msg.flags?.includes('\\Seen')
   const isStarred = msg.flags?.includes('\\Flagged')
   const textContent = body?.text || ''
+
+  // Sender info
+  const senderName = msg.from_name || ''
+  const senderEmail = msg.from_email || ''
+
+  // Recipient names from to_addresses
+  const recipientNames = (msg.to_addresses || [])
+    .map(a => (typeof a === 'string' ? a : (a.name || a.email || '')))
+    .filter(Boolean)
+    .join(', ') || ''
 
   // Build attachment list: DB metadata is the source of truth (from bodyStructure),
   // supplemented by partId/type from simpleParser when available
@@ -480,7 +489,7 @@ export default function ReadingPane() {
   const iframeDoc = renderHtml ? buildEmailIframeDoc(renderHtml) : null
 
   return (
-    <div className="reading-pane">
+    <div className="reader" key={msg.uid}>
       {filePreview && (
         <div
           className="image-preview-overlay"
@@ -520,100 +529,67 @@ export default function ReadingPane() {
         </div>
       )}
 
-      <div className="reading-pane__header">
-        <h2 className="reading-pane__subject">{msg.subject || t('reading.noSubject')}</h2>
-
-        <div className="reading-pane__meta">
-          <div className="reading-pane__meta-info">
-            <div className="reading-pane__recipients">
-              <span className="reading-pane__recipients-label">{t('reading.from')}</span>
-              <div className="reading-pane__chips">
-                <AddressChip
-                  address={{ name: msg.from_name, email: msg.from_email }}
-                  large
-                  onCompose={em => window.api.window.openCompose({ mode: 'new', to: em })}
-                />
-              </div>
-            </div>
-            {(msg.to_addresses?.length > 0) && (
-              <div className="reading-pane__recipients">
-                <span className="reading-pane__recipients-label">{t('reading.to')}</span>
-                <div className="reading-pane__chips">
-                  {(msg.to_addresses || []).map((a, i) => (
-                    <AddressChip key={i} address={a} />
-                  ))}
-                </div>
-              </div>
-            )}
-            {(msg.cc_addresses?.length > 0) && (
-              <div className="reading-pane__recipients">
-                <span className="reading-pane__recipients-label">{t('reading.cc')}</span>
-                <div className="reading-pane__chips">
-                  {(msg.cc_addresses || []).map((a, i) => (
-                    <AddressChip key={i} address={a} onCompose={em => window.api.window.openCompose({ mode: 'new', to: em })} />
-                  ))}
-                </div>
-              </div>
-            )}
+      {/* Header */}
+      <div className="reader__head fadein">
+        <div className="reader__subject">{msg.subject || '(senza oggetto)'}</div>
+        <div className="reader__metarow">
+          <div className="reader__sender-av" style={{ background: getAvatarColor(senderName) }}>
+            {getInitials(senderName, senderEmail)}
           </div>
-          <div className="reading-pane__meta-right">{formatFullDate(msg.date)}</div>
+          <div className="reader__sender">
+            <div className="reader__sender-name">
+              {senderName}{' '}
+              <span style={{ fontWeight: 400, color: 'var(--ink-3)', fontSize: '12.5px' }}>
+                {'<'}{senderEmail}{'>'}
+              </span>
+            </div>
+            <div className="reader__sender-detail">
+              a <b>{recipientNames}</b>
+            </div>
+          </div>
+          <div className="reader__date">{formatFullDate(msg.date)}</div>
         </div>
       </div>
 
-      <div className="reading-pane__toolbar">
-        <button className="btn btn--ghost" onClick={handleReply} title={t('action.reply')}>
-          <IconReply size={14} /> {t('action.reply')}
+      {/* Action toolbar */}
+      <div className="reader__bar">
+        <button className="act act--primary" onClick={handleReply}>
+          <IconReply size={15} /> Rispondi <kbd>R</kbd>
         </button>
-        <button className="btn btn--ghost" onClick={handleReplyAll} title={t('action.replyAll')}>
-          <IconReplyAll size={14} /> {t('action.all')}
+        <button className="act" onClick={handleReplyAll}>
+          <IconReplyAll size={15} /> Tutti
         </button>
-        <button className="btn btn--ghost" onClick={handleForward} title={t('action.forward')}>
-          <IconForward size={14} /> {t('action.forward')}
+        <button className="act" onClick={handleForward}>
+          <IconForward size={15} /> Inoltra
         </button>
-
-        <div className="reading-pane__toolbar-spacer" />
-
-        <button
-          className={`btn btn--icon${isStarred ? ' active' : ''}`}
-          onClick={handleToggleStar}
-          title={isStarred ? t('action.unstar') : t('action.star')}
-          aria-label={isStarred ? t('action.unstar') : t('action.star')}
-        ><IconStar size={16} /></button>
-
-        <button
-          className="btn btn--icon"
-          onClick={handleToggleRead}
-          title={isRead ? t('action.markUnread') : t('action.markRead')}
-          aria-label={isRead ? t('action.markUnread') : t('action.markRead')}
-        ><IconMarkRead size={16} /></button>
-
-        <button
-          className="btn btn--icon"
-          onClick={handleMarkJunk}
-          title={t('action.markJunk')}
-          aria-label={t('action.markJunk')}
-        ><IconNoSymbol size={16} /></button>
-
-        <button
-          className="btn btn--icon btn--danger"
-          onClick={handleDelete}
-          title={t('action.delete')}
-          aria-label={t('action.delete')}
-        ><IconTrash size={16} /></button>
+        <div className="reader__bar-sep" />
+        <button className={`icon-btn${isStarred ? ' on' : ''}`} title="Stella" onClick={handleToggleStar}>
+          <IconStar size={17} fill={isStarred ? 'currentColor' : 'none'} />
+        </button>
+        <button className="icon-btn" title={isRead ? 'Segna non letta' : 'Segna letta'} onClick={handleToggleRead}>
+          <IconMarkRead size={17} />
+        </button>
+        <button className="icon-btn" title="Spam" onClick={handleMarkJunk}>
+          <IconNoSymbol size={17} />
+        </button>
+        <button className="icon-btn" title="Archivia" onClick={handleArchive}>
+          <IconArchive size={17} />
+        </button>
+        <button className="icon-btn" title="Elimina" onClick={handleDelete}>
+          <IconTrash size={17} />
+        </button>
       </div>
 
+      {/* Remote images banner */}
       {hasRemoteImages && imagesBlocked && !imagesLoadedByUser && (
-        <div className="reading-pane__images-blocked">
-          <span>{t('reading.imagesBlocked')}</span>
-          <button
-            className="btn btn--ghost"
-            onClick={() => { setImagesBlocked(false); setImagesLoadedByUser(true) }}
-            style={{ padding: 'var(--sp-1) var(--sp-3)', fontSize: 'var(--text-sm)' }}
-          >{t('action.loadImages')}</button>
+        <div className="banner">
+          <span>Immagini remote bloccate per la tua privacy</span>
+          <button onClick={handleLoadImages}>Carica immagini</button>
         </div>
       )}
 
-      <div className="reading-pane__body">
+      {/* Email body — iframe UNCHANGED */}
+      <div className="reader__body scroll">
         {bodyLoading ? (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div className="spinner" />
@@ -644,17 +620,22 @@ export default function ReadingPane() {
         )}
       </div>
 
+      {/* Attachments */}
       {attachments.length > 0 && (
-        <div className="attachments-strip">
+        <div className="attach">
           {attachments.map((att, i) => (
-            <AttachmentChip
-              key={i}
-              attachment={att}
-              loading={loadingIdx === i}
-              onPreview={() => handlePreviewAttachment(att, i)}
-              onSave={() => handleSaveAttachment(att, i)}
-              t={t}
-            />
+            <div key={i} className="attach__chip" onClick={() => handlePreviewAttachment(att, i)}>
+              <div className="attach__ic" style={{ background: attachIconColor(att) }}>
+                {isImageFile(att) ? <IconFileImage size={17} /> : <IconFileDoc size={17} />}
+              </div>
+              <div>
+                <div className="attach__name">{att.filename || att.name}</div>
+                <div className="attach__size">{formatSize(att.size)}</div>
+              </div>
+              <button className="icon-btn" title="Scarica" onClick={ev => { ev.stopPropagation(); handleSaveAttachment(att, i) }}>
+                <IconDownload size={15} />
+              </button>
+            </div>
           ))}
         </div>
       )}
@@ -667,46 +648,6 @@ export default function ReadingPane() {
         onClose={() => setContextMenu({ ...contextMenu, isVisible: false })}
         onAction={handleContextMenuAction}
       />
-    </div>
-  )
-}
-
-function AttachmentChip({ attachment, loading, onPreview, onSave, t }) {
-  const isImage = attachment.type?.startsWith('image/') || /\.(jpe?g|png|gif|webp|bmp|svg)$/i.test(attachment.filename || '')
-  const isPdf   = attachment.type === 'application/pdf' || /\.pdf$/i.test(attachment.filename || '')
-  const canPreview = isImage || isPdf
-  const sizeStr = attachment.size
-    ? attachment.size > 1048576
-      ? `${(attachment.size / 1048576).toFixed(1)} MB`
-      : `${Math.round(attachment.size / 1024)} KB`
-    : ''
-
-  return (
-    <div className={`attachment-chip${loading ? ' attachment-chip--loading' : ''}`}>
-      <div
-        className="attachment-chip__body"
-        onClick={loading ? undefined : onPreview}
-        title={canPreview ? attachment.filename : undefined}
-        role={canPreview ? 'button' : undefined}
-        tabIndex={canPreview ? 0 : undefined}
-        onKeyDown={e => !loading && canPreview && e.key === 'Enter' && onPreview()}
-        style={{ cursor: canPreview && !loading ? 'pointer' : 'default' }}
-      >
-        <span style={{ color: 'var(--text-secondary)', flexShrink: 0 }}>
-          {loading ? <div className="spinner spinner--sm" /> : isImage ? <IconFileImage size={16} /> : <IconFileDoc size={16} />}
-        </span>
-        <span className="truncate" style={{ maxWidth: 180 }}>{attachment.filename}</span>
-        {sizeStr && <span style={{ color: 'var(--text-tertiary)', flexShrink: 0 }}>{sizeStr}</span>}
-      </div>
-      <div className="attachment-chip__sep" />
-      <button
-        className="attachment-chip__dl-btn"
-        onClick={e => { e.stopPropagation(); onSave() }}
-        title={t('action.saveFile')}
-        aria-label={t('action.saveFile')}
-      >
-        <IconDownload size={13} />
-      </button>
     </div>
   )
 }
