@@ -318,13 +318,14 @@ export default function Sidebar() {
         )}
       </div>
 
-      {/* Footer: storage + refresh */}
+      {/* Footer: last sync + refresh */}
       <div className="sidebar__foot">
         <div className="storage">
-          <div className="storage__bar">
-            <div className="storage__fill" style={{ width: '34%' }} />
+          <div className="storage__label" style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.4 }}>
+            {state.sync?.lastActivity
+              ? t('sidebar.lastSync') + ' ' + new Date(state.sync.lastActivity).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              : t('sidebar.notSynced')}
           </div>
-          <div className="storage__label">{t('sidebar.iCloudStorage')}</div>
         </div>
         <button
           className="icon-btn"

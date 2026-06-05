@@ -234,5 +234,7 @@
   "messages.searchInbox": "Search mail…",
   "reading.navigate": "Use ↑ ↓ to navigate",
   "sidebar.iCloudStorage": "iCloud Storage",
-  "sidebar.searchShortcut": "Search  Ctrl+K"
+  "sidebar.searchShortcut": "Search  Ctrl+K",
+  "sidebar.lastSync": "Last synced at",
+  "sidebar.notSynced": "Not yet synced"
 }
