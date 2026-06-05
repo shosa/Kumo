@@ -17,12 +17,12 @@ async function getAutoUpdater() {
   autoUpdater.autoInstallOnAppQuit = false
   autoUpdater.logger = null // disable file logging; we relay via IPC
 
-  autoUpdater.on('checking-for-update', () => send('checking'))
-  autoUpdater.on('update-available',     (info) => send('available',   { version: info.version }))
-  autoUpdater.on('update-not-available', ()     => send('not-available'))
-  autoUpdater.on('download-progress',    (p)    => send('progress',    { percent: Math.round(p.percent) }))
-  autoUpdater.on('update-downloaded',    (info) => send('downloaded',  { version: info.version }))
-  autoUpdater.on('error',                (err)  => send('error',       { message: err.message }))
+  autoUpdater.on('checking-for-update', () => { console.log('[Updater] checking-for-update'); send('checking') })
+  autoUpdater.on('update-available',     (info) => { console.log('[Updater] update-available', info.version); send('available',   { version: info.version }) })
+  autoUpdater.on('update-not-available', (info) => { console.log('[Updater] update-not-available', info?.version); send('not-available') })
+  autoUpdater.on('download-progress',    (p)    => { send('progress', { percent: Math.round(p.percent) }) })
+  autoUpdater.on('update-downloaded',    (info) => { console.log('[Updater] update-downloaded', info.version); send('downloaded',  { version: info.version }) })
+  autoUpdater.on('error',                (err)  => { console.error('[Updater] error', err.message); send('error', { message: err.message }) })
 
   _autoUpdater = autoUpdater
   return _autoUpdater
@@ -37,10 +37,13 @@ export function initUpdater(mainWindow) {
     ipcMain.handle('updater:check', async () => {
       try {
         const au = await getAutoUpdater()
-        if (!au) return { ok: false, error: 'Updater disabled in development' }
+        if (!au) { console.log('[Updater] disabled in dev'); return { ok: false, error: 'Updater disabled in development' } }
+        console.log('[Updater] checkForUpdates() called')
         await au.checkForUpdates()
+        console.log('[Updater] checkForUpdates() resolved')
         return { ok: true }
       } catch (err) {
+        console.error('[Updater] checkForUpdates() threw:', err.message)
         return { ok: false, error: err.message }
       }
     })

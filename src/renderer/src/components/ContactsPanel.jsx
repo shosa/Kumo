@@ -174,14 +174,19 @@ export default function ContactsPanel() {
           {selected.title && <div className="cdetail__role">{selected.title}</div>}
           {selected.organization && <div className="cdetail__role">{selected.organization}</div>}
           <div className="cdetail__actions">
-            <button
-              className="act act--primary"
-              onClick={() => handleComposeToContact(selected)}
-            >
-              <IconMail size={15} /> {t('contacts.fieldEmail')}
-            </button>
-            {(selected.phones?.[0]) && (
-              <button className="act">
+            {(selected.email || selected.emails?.length > 0) && (
+              <button
+                className="act act--primary"
+                onClick={() => handleComposeToContact(selected)}
+              >
+                <IconMail size={15} /> {t('contacts.fieldEmail')}
+              </button>
+            )}
+            {selected.phones?.[0] && (
+              <button
+                className="act"
+                onClick={() => window.api.shell.openExternal(`tel:${selected.phones[0]}`)}
+              >
                 <IconPhone size={15} /> {t('action.phone')}
               </button>
             )}

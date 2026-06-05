@@ -34,9 +34,11 @@ export default function Settings() {
   }, [])
 
   async function handleCheckUpdate() {
+    console.log('[Updater] Starting check...')
     setUpdateStatus('checking')
     setUpdateVersion('')
     const off = window.api.on('updater:status', (data) => {
+      console.log('[Updater] Status event:', data)
       if (data.event === 'available') {
         setUpdateStatus('available')
         setUpdateVersion(data.version || '')
@@ -49,7 +51,13 @@ export default function Settings() {
         off?.()
       }
     })
-    await window.api.updater.check().catch(() => { setUpdateStatus('error'); off?.() })
+    const result = await window.api.updater.check().catch(err => {
+      console.error('[Updater] check() threw:', err)
+      setUpdateStatus('error')
+      off?.()
+      return null
+    })
+    console.log('[Updater] check() resolved:', result)
   }
 
   function update(key, value) {
