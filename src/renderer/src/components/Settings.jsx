@@ -122,14 +122,14 @@ export default function Settings() {
                   <div className="srow__name">Blocca immagini remote</div>
                   <div className="srow__desc">Impedisce il caricamento di pixel di tracciamento</div>
                 </div>
-                <Switch on={!!s.blockRemoteImages} onChange={() => update('blockRemoteImages', !s.blockRemoteImages)} />
+                <Switch on={s.blockRemoteImages !== false} onChange={() => update('blockRemoteImages', !s.blockRemoteImages)} />
               </div>
               <div className="srow">
                 <div className="srow__txt">
                   <div className="srow__name">Notifiche nuovi messaggi</div>
                   <div className="srow__desc">Mostra notifiche Windows per la nuova posta</div>
                 </div>
-                <Switch on={!!s.notificationsEnabled} onChange={() => update('notificationsEnabled', !s.notificationsEnabled)} />
+                <Switch on={s.notificationsEnabled !== false} onChange={() => update('notificationsEnabled', !s.notificationsEnabled)} />
               </div>
             </div>
           </div>
