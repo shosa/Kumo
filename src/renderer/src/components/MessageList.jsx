@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
-import { IconSearch, IconClose, IconAttach, IconEnvelope, IconStar, IconReply, IconTrash, IconMarkRead } from './Icons'
+import { IconSearch, IconClose, IconAttach, IconEnvelope, IconStar, IconReply, IconTrash, IconMarkRead, IconRefresh, IconArrowDown } from './Icons'
 import ContextMenu from './ContextMenu'
 
 const AVATAR_COLORS = [
@@ -50,18 +50,22 @@ const FOLDER_LABEL_KEY = {
 
 function msgKey(msg) { return `${msg.folder}-${msg.uid}` }
 
+const sortLabels = { 'date-desc': 'Più recenti ↓', 'date-asc': 'Più vecchi ↑', from: 'Mittente' }
+
 export default function MessageList() {
   const state = useAppState()
   const dispatch = useAppDispatch()
   const t = useTranslation()
   const listRef = useRef(null)
+  const searchInputRef = useRef(null)
   const [localSearch, setLocalSearch] = useState('')
   const searchDebounce = useRef(null)
   const [contextMenu, setContextMenu] = useState(null)
   const [selectedKeys, setSelectedKeys] = useState(new Set())
-  const [filter, setFilter] = useState('all')
+  const [activeFilter, setActiveFilter] = useState('all')
   const [sortBy, setSortBy] = useState('date-desc')
   const [expandedThreads, setExpandedThreads] = useState(new Set())
+  const [isSyncing, setIsSyncing] = useState(false)
 
   const folder = state.folders.selected
 
@@ -89,13 +93,27 @@ export default function MessageList() {
     done()
   }, [folder, dispatch])
 
+  async function handleSync() {
+    if (isSyncing || !folder) return
+    setIsSyncing(true)
+    try {
+      await window.api.imap.syncFolder(folder)
+      await loadMessages(1)
+    } catch { /* ignore */ }
+    setIsSyncing(false)
+  }
+
+  function cycleSortBy() {
+    setSortBy(s => s === 'date-desc' ? 'date-asc' : s === 'date-asc' ? 'from' : 'date-desc')
+  }
+
   useEffect(() => { if (folder) loadMessages(1) }, [folder, loadMessages])
   useEffect(() => { if (state.messages._newMailSignal) loadMessages(1) }, [state.messages._newMailSignal, loadMessages])
   useEffect(() => { if (state.messages._syncSignal) loadMessages(1) }, [state.messages._syncSignal, loadMessages])
   useEffect(() => { if (listRef.current) listRef.current.scrollTop = 0 }, [folder])
 
   // Clear multi-selection and reset filters when folder changes
-  useEffect(() => { setSelectedKeys(new Set()); setFilter('all'); setSortBy('date-desc') }, [folder])
+  useEffect(() => { setSelectedKeys(new Set()); setActiveFilter('all'); setSortBy('date-desc') }, [folder])
 
   // Auto-select message when opened from a notification click
   useEffect(() => {
@@ -119,7 +137,7 @@ export default function MessageList() {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [state.messages.list, state.messages.searchResults, filter, sortBy])
+  }, [state.messages.list, state.messages.searchResults, activeFilter, sortBy])
 
   function handleLoadMore() {
     if (!state.messages.hasMore || state.messages.loading) return
@@ -166,8 +184,7 @@ export default function MessageList() {
     setContextMenu({ x: e.clientX, y: e.clientY, messages: targetMessages })
   }
 
-  function handleSearchInput(e) {
-    const q = e.target.value
+  function handleSearchChange(q) {
     setLocalSearch(q)
     clearTimeout(searchDebounce.current)
 
@@ -256,7 +273,7 @@ export default function MessageList() {
   }
 
   const folderObj = state.folders.list.find(f => f.path === folder)
-  const folderName = folderObj
+  const folderDisplayName = folderObj
     ? (folderObj.special_use && FOLDER_LABEL_KEY[folderObj.special_use]
         ? t(FOLDER_LABEL_KEY[folderObj.special_use])
         : (folderObj.name || folder?.split('/').pop() || folder || ''))
@@ -265,9 +282,9 @@ export default function MessageList() {
   const rawMessages = state.messages.searchResults !== null
     ? state.messages.searchResults : state.messages.list
 
-  const filteredMessages = filter === 'unread'
+  const filteredMessages = activeFilter === 'unread'
     ? rawMessages.filter(m => !m.flags?.includes('\\Seen'))
-    : filter === 'starred'
+    : activeFilter === 'starred'
       ? rawMessages.filter(m => m.flags?.includes('\\Flagged'))
       : rawMessages
 
@@ -300,61 +317,65 @@ export default function MessageList() {
   }
 
   return (
-    <div className="message-list" onClick={e => { if (!e.defaultPrevented) setContextMenu(null) }}>
-      <div className="message-list__header">
-        <div className="message-list__title">
-          {state.messages.searchResults !== null ? `"${localSearch}"` : folderName}
-          {' '}
-          {!state.messages.searchResults && state.messages.total > 0 && (
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)', fontWeight: 'var(--weight-regular)' }}>
-              {state.messages.total}
-            </span>
-          )}
+    <div className="list" onClick={e => { if (!e.defaultPrevented) setContextMenu(null) }}>
+
+      <div className="list__head">
+        <div className="list__titlerow">
+          <span className="list__title">
+            {state.messages.searchResults !== null ? `"${localSearch}"` : folderDisplayName}
+          </span>
+          <span className="list__count">
+            {state.messages.searchResults !== null
+              ? displayMessages.length
+              : (state.messages.total || displayMessages.length)}
+          </span>
           {selectedKeys.size > 1 && (
             <span style={{ fontSize: 'var(--text-sm)', color: 'var(--accent)', fontWeight: 'var(--weight-medium)', marginLeft: 'var(--sp-2)' }}>
               · {t('multiselect.count', selectedKeys.size)}
             </span>
           )}
-        </div>
-
-        <div className="search-bar">
-          <span className="search-bar__icon"><IconSearch size={14} /></span>
-          <input
-            className="search-bar__input"
-            placeholder={t('messages.searchPlaceholder')}
-            value={localSearch}
-            onChange={handleSearchInput}
-          />
-          {localSearch && (
-            <button className="search-bar__clear" onClick={clearSearch}>
-              <IconClose size={12} />
+          <div className="list__head-actions">
+            <button className="icon-btn" onClick={handleSync} title="Aggiorna">
+              <IconRefresh size={16} className={isSyncing ? 'spin' : ''} />
             </button>
-          )}
+          </div>
+        </div>
+        <div className="search">
+          <span className="search__icon"><IconSearch size={15} /></span>
+          <input
+            ref={searchInputRef}
+            placeholder="Cerca nella posta…"
+            value={localSearch}
+            onChange={e => handleSearchChange(e.target.value)}
+          />
+          {localSearch
+            ? <button className="icon-btn" style={{ width: 22, height: 22 }} onClick={() => handleSearchChange('')}>
+                <IconClose size={13} />
+              </button>
+            : <kbd>⌘K</kbd>
+          }
         </div>
       </div>
 
-      {!state.messages.searchResults && (
-        <div className="message-list__filters">
-          <div className="filter-tabs">
-            {['all', 'unread', 'starred'].map(f => (
-              <button key={f} className={`filter-tab${filter === f ? ' active' : ''}`} onClick={() => setFilter(f)}>
-                {t(`filter.${f}`)}
-              </button>
-            ))}
-          </div>
-          <select className="sort-select" value={sortBy} onChange={e => setSortBy(e.target.value)}>
-            <option value="date-desc">{t('sort.newest')}</option>
-            <option value="date-asc">{t('sort.oldest')}</option>
-            <option value="from">{t('sort.from')}</option>
-            <option value="subject">{t('sort.subject')}</option>
-          </select>
+      <div className="list__filters">
+        <div className="seg">
+          {[['all','Tutte'],['unread','Non lette'],['starred','Speciali']].map(([f,l]) => (
+            <button
+              key={f}
+              className={`seg__btn${activeFilter === f ? ' active' : ''}`}
+              onClick={() => setActiveFilter(f)}
+            >{l}</button>
+          ))}
         </div>
-      )}
+        <button className="sortbtn" onClick={cycleSortBy}>
+          {sortLabels[sortBy]} <IconArrowDown size={13} />
+        </button>
+      </div>
 
       {state.messages.loading && displayMessages.length === 0 ? (
-        <div className="message-list__body" style={{ pointerEvents: 'none' }}>
+        <div className="list__body" style={{ pointerEvents: 'none' }}>
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="message-item message-item--skeleton">
+            <div key={i} className="mail mail--skeleton">
               <div className="skeleton" style={{ width: 36, height: 36, borderRadius: '50%', flexShrink: 0 }} />
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <div className="skeleton" style={{ width: '60%', height: 12 }} />
@@ -365,7 +386,7 @@ export default function MessageList() {
           ))}
         </div>
       ) : displayMessages.length === 0 ? (
-        <div className="message-list__empty">
+        <div className="list__empty">
           <div style={{ opacity: 0.2 }}><IconEnvelope size={44} /></div>
           <span style={{ color: 'var(--text-secondary)', fontWeight: 'var(--weight-medium)' }}>
             {localSearch ? t('messages.noResults') : t('messages.noMessages')}
@@ -381,7 +402,7 @@ export default function MessageList() {
           )}
         </div>
       ) : (
-        <div className="message-list__body" ref={listRef} onScroll={handleScroll} role="list" aria-label="Messages">
+        <div className="list__body scroll" ref={listRef} onScroll={handleScroll} role="list" aria-label="Messages">
           {groupByThread(displayMessages).map(({ threadId, messages: threadMsgs, latest }) => {
             const isExpanded = expandedThreads.has(threadId)
             const isMulti    = threadMsgs.length > 1
@@ -424,7 +445,7 @@ export default function MessageList() {
           })}
 
           {state.messages.hasMore && !state.messages.searchResults && (
-            <div className="message-list__load-more">
+            <div className="list__load-more">
               {state.messages.loading ? (
                 <div className="spinner" style={{ margin: '0 auto' }} />
               ) : (
@@ -454,6 +475,7 @@ export default function MessageList() {
 function MessageItem({ message, selected, multiSelected, threadCount, isThreadChild, onThreadExpand, onClick, onDoubleClick, onContextMenu, onDragStart, onQuickAction, contactMap }) {
   const isUnread  = !message.flags?.includes('\\Seen')
   const isStarred = message.flags?.includes('\\Flagged')
+  const hasAttachments = message.has_attachments || false
   const isSentFolder = /sent|draft|outbox/i.test(message.folder || '')
   const resolvedName = (() => {
     if (isSentFolder) {
@@ -464,12 +486,15 @@ function MessageItem({ message, selected, multiSelected, threadCount, isThreadCh
     }
     return contactMap?.get(message.from_email?.toLowerCase()) || message.from_name || message.from_email || '?'
   })()
-  const initials  = getInitials(resolvedName, message.from_email)
+  const senderEmail = message.from_email || message.from || ''
+  const initials  = getInitials(resolvedName, senderEmail)
   const color     = getAvatarColor(resolvedName)
 
   return (
     <div
-      className={`message-item${selected ? ' selected' : ''}${isUnread ? ' unread' : ''}${multiSelected ? ' multi-selected' : ''}${isThreadChild ? ' thread-child' : ''}`}
+      className={`mail${selected ? ' sel' : ''}${isUnread ? '' : ' read'}${multiSelected ? ' multi-selected' : ''}${isThreadChild ? ' thread-child' : ''}`}
+      data-avatars="on"
+      data-preview="on"
       draggable
       onDragStart={onDragStart}
       onClick={onClick}
@@ -481,16 +506,18 @@ function MessageItem({ message, selected, multiSelected, threadCount, isThreadCh
       aria-label={`${resolvedName}: ${message.subject}`}
       onKeyDown={e => e.key === 'Enter' && onClick(e)}
     >
+      <span className="mail__unread" />
+
       <div
-        className="message-item__avatar"
-        style={{ backgroundColor: multiSelected ? 'var(--accent)' : color }}
+        className="mail__avatar"
+        style={{ background: multiSelected ? 'var(--accent)' : color }}
       >
         {multiSelected ? '✓' : initials}
       </div>
 
-      <div className="message-item__content">
-        <div className="message-item__row1">
-          <span className="message-item__sender">
+      <div className="mail__body">
+        <div className="mail__r1">
+          <span className="mail__from">
             {resolvedName}
           </span>
           {threadCount && (
@@ -499,40 +526,40 @@ function MessageItem({ message, selected, multiSelected, threadCount, isThreadCh
               onClick={e => { e.stopPropagation(); onThreadExpand?.() }}
             >{threadCount}</span>
           )}
-          {isStarred && !multiSelected && <IconStar size={12} style={{ color: '#ffd60a', fill: '#ffd60a', flexShrink: 0 }} />}
-          <span className="message-item__time">{formatDate(message.date)}</span>
+          {isStarred && !multiSelected && (
+            <span className="mail__star"><IconStar size={12} fill="currentColor" /></span>
+          )}
+          <span className="mail__time">{formatDate(message.date)}</span>
         </div>
-        <div className="message-item__subject truncate">
-          {message.subject || '—'}
-        </div>
-        <div className="message-item__preview">
-          {message.has_attachments && <span className="message-item__attachments-icon"><IconAttach size={12} /></span>}
-          <span className="truncate">{message.snippet}</span>
+        <div className="mail__subject">{message.subject || '(senza oggetto)'}</div>
+        <div className="mail__preview">
+          {hasAttachments && <IconAttach size={12} />}
+          <span>{message.snippet || message.preview || ''}</span>
         </div>
       </div>
 
       {onQuickAction && (
-        <div className="message-item__quick-actions" onClick={e => e.stopPropagation()}>
+        <div className="mail__qa" onClick={e => e.stopPropagation()}>
           <button
-            className="message-item__quick-btn"
+            className="qa-btn"
+            title="Rispondi"
             onClick={e => { e.stopPropagation(); onQuickAction('reply') }}
-            title="Reply"
-          ><IconReply size={13} /></button>
+          ><IconReply size={15} /></button>
           <button
-            className={`message-item__quick-btn${isStarred ? ' active' : ''}`}
+            className={`qa-btn${isStarred ? ' on' : ''}`}
+            title="Stella"
             onClick={e => { e.stopPropagation(); onQuickAction(isStarred ? 'unstar' : 'star') }}
-            title={isStarred ? 'Unstar' : 'Star'}
-          ><IconStar size={13} /></button>
+          ><IconStar size={15} fill={isStarred ? 'currentColor' : 'none'} /></button>
           <button
-            className="message-item__quick-btn"
+            className="qa-btn"
+            title={isUnread ? 'Segna letta' : 'Segna non letta'}
             onClick={e => { e.stopPropagation(); onQuickAction(isUnread ? 'markRead' : 'markUnread') }}
-            title={isUnread ? 'Mark read' : 'Mark unread'}
-          ><IconMarkRead size={13} /></button>
+          ><IconMarkRead size={15} /></button>
           <button
-            className="message-item__quick-btn message-item__quick-btn--danger"
+            className="qa-btn qa-btn--danger"
+            title="Elimina"
             onClick={e => { e.stopPropagation(); onQuickAction('delete') }}
-            title="Delete"
-          ><IconTrash size={13} /></button>
+          ><IconTrash size={15} /></button>
         </div>
       )}
     </div>
