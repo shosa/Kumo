@@ -813,9 +813,17 @@
 
 /* — Compose window standalone (ComposeViewerApp) — */
 .compose-window--standalone {
-  width: 100%; height: calc(100vh - 32px); margin-top: 32px;
-  display: flex; flex-direction: column;
-  background: var(--surface); border: none;
+  width: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  height: calc(100vh - 32px);
+  margin-top: 32px;
+  flex: 1;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  animation: none !important;
+  background: var(--surface);
 }
 .compose-window__header {
   display: flex; align-items: center; padding: 14px 20px;
@@ -922,20 +930,168 @@
 .btn--danger { color: var(--color-error) !important; }
 .btn--danger:hover { background: color-mix(in srgb, var(--color-error) 12%, transparent) !important; }
 
-/* — contact picker modal (used by ComposeViewerApp) — */
+/* ============================================================================
+   COMPOSE WINDOW (ComposeWindow.jsx — modal inside app)
+   ============================================================================ */
+@keyframes scaleIn { from { transform: scale(0.96) translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+
+.compose-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(8,10,16,0.42); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+  animation: fadeIn .18s var(--ease);
+}
+
+.compose-window {
+  width: min(700px, 90vw); max-height: 85vh;
+  display: flex; flex-direction: column; position: relative;
+  background: var(--surface); border: 1px solid var(--line-strong);
+  border-radius: var(--r-xl); box-shadow: var(--shadow-window);
+  overflow: hidden; animation: scaleIn .22s var(--ease-spring);
+}
+
+.compose-window__header {
+  display: flex; align-items: center; padding: 12px 18px;
+  border-bottom: 1px solid var(--line); flex-shrink: 0; gap: 10px;
+}
+.compose-window__title { flex: 1; font-size: 14px; font-weight: 600; color: var(--ink); }
+
+.compose-window__fields {
+  padding: 0 18px; border-bottom: 1px solid var(--line); flex-shrink: 0;
+}
+
+.compose-toolbar {
+  display: flex; align-items: center; gap: 2px;
+  padding: 6px 14px; border-bottom: 1px solid var(--line);
+  background: var(--surface-2); flex-shrink: 0;
+}
+.compose-toolbar__spacer { flex: 1; }
+
+.compose-tool-btn {
+  width: 32px; height: 32px; border-radius: var(--r-sm); border: none;
+  background: transparent; color: var(--ink-3); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s;
+}
+.compose-tool-btn:hover { background: var(--hover-strong); color: var(--ink); }
+.compose-tool-btn.active { color: var(--accent); background: var(--accent-soft); }
+
+.compose-window__editor { flex: 1; overflow-y: auto; min-height: 180px; }
+.compose-editor { height: 100%; }
+
+.compose-attachments {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 8px 18px; border-top: 1px solid var(--line);
+  background: var(--surface-2); flex-shrink: 0;
+}
+.compose-attachments .attachment-chip {
+  display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-full); font-size: 12px; color: var(--ink-2); max-width: 240px;
+}
+
+.compose-window__footer {
+  display: flex; align-items: center; gap: 8px; padding: 10px 18px;
+  border-top: 1px solid var(--line); flex-shrink: 0;
+}
+
+/* override compose-field for inside modal (tighter lines) */
+.compose-window .compose-field {
+  border-bottom-color: var(--line);
+}
+.compose-window .compose-field:last-child { border-bottom: none; }
+
+/* setup-error (used in compose footer for send errors) */
+.setup-error {
+  padding: 8px 12px; background: color-mix(in srgb, var(--color-error) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-error) 25%, transparent);
+  border-radius: var(--r-md); font-size: 12px; color: var(--color-error);
+}
+
+/* ============================================================================
+   CONTACT PICKER (ContactPickerModal.jsx — inside ComposeWindow)
+   ============================================================================ */
+/* overlay covers only the compose-window (absolute positioned ancestor) */
 .contact-picker-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.3); backdrop-filter: blur(4px);
-  display: flex; align-items: center; justify-content: center; z-index: 500;
+  position: absolute; inset: 0; z-index: 10;
+  background: rgba(8,10,16,0.3); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+  animation: fadeIn .15s var(--ease);
 }
-.contact-picker-modal {
-  width: min(520px, 90vw); max-height: 70vh; display: flex; flex-direction: column;
-  background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-xl);
-  box-shadow: var(--shadow-window); overflow: hidden;
+
+.contact-picker {
+  background: var(--surface); border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-pop);
+  width: min(340px, 90%); max-height: 480px;
+  display: flex; flex-direction: column; overflow: hidden;
 }
-.contact-picker__header { padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
-.contact-picker__title { flex: 1; font-size: 14px; font-weight: 600; color: var(--ink); }
-.contact-picker__list { flex: 1; overflow-y: auto; padding: 6px; }
-.contact-picker__item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-md); cursor: pointer; }
+
+.contact-picker__header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px 8px; border-bottom: 1px solid var(--line);
+}
+.contact-picker__search-wrap {
+  flex: 1; display: flex; align-items: center; gap: 8px;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--r-full); padding: 4px 10px; color: var(--ink-3);
+}
+.contact-picker__search {
+  flex: 1; border: none; outline: none; background: transparent;
+  font-size: 12.5px; color: var(--ink); font-family: var(--sans);
+}
+.contact-picker__search::placeholder { color: var(--ink-4); }
+.contact-picker__clear {
+  background: none; border: none; cursor: pointer;
+  color: var(--ink-3); display: flex; padding: 0;
+}
+.contact-picker__clear:hover { color: var(--ink); }
+
+.contact-picker__select-all {
+  display: flex; align-items: center; gap: 8px; padding: 6px 12px;
+  font-size: 11px; color: var(--ink-3); cursor: pointer;
+  border-bottom: 1px solid var(--line); user-select: none;
+}
+.contact-picker__select-all:hover { background: var(--hover); }
+
+.contact-picker__list { flex: 1; overflow-y: auto; padding: 4px 0; }
+
+.contact-picker__empty {
+  padding: 32px 16px; text-align: center;
+  font-size: 12.5px; color: var(--ink-4);
+}
+
+.contact-picker__item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 12px; cursor: pointer; user-select: none;
+  transition: background .1s;
+}
 .contact-picker__item:hover { background: var(--hover); }
 .contact-picker__item.selected { background: var(--accent-soft); }
-.contact-picker__footer { padding: 10px 18px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
+
+.contact-picker__avatar {
+  width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600; color: #fff;
+}
+
+.contact-picker__info { flex: 1; min-width: 0; }
+.contact-picker__name {
+  font-size: 13px; font-weight: 500; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.contact-picker__email {
+  font-size: 11px; color: var(--ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.contact-picker__footer {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  border-top: 1px solid var(--line);
+}
+.contact-picker__footer-label {
+  font-size: 11.5px; color: var(--ink-2); margin-right: 4px;
+}
+.contact-picker__add-btn {
+  font-size: 11px; font-weight: 600; padding: 4px 10px; min-width: 0;
+}

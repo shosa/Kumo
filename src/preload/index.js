@@ -74,6 +74,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('store:clear-body-cache'),
     clearFolderCache: () =>
       ipcRenderer.invoke('store:clear-folder-cache'),
+    clearMessages: () =>
+      ipcRenderer.invoke('store:clear-messages'),
     getDbPath: () =>
       ipcRenderer.invoke('store:get-db-path'),
     openDbFolder: () =>

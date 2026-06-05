@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, Tray, Menu, Notification, nativeImage, she
 import { join, dirname, resolve, sep } from 'path'
 import {
   initDB, closeDB, searchMessages, getSettings, saveSetting,
-  getFolders, clearBodyCache, clearFolderCache, getDbPath, resetAllData,
+  getFolders, clearBodyCache, clearFolderCache, clearMessages, getDbPath, resetAllData,
   getDrafts, upsertDraft, deleteDraft,
   getSyncState,
   getAttachmentsMeta, markAttachmentDownloaded,
@@ -684,6 +684,15 @@ ipcMain.handle('store:clear-body-cache', async () => {
 ipcMain.handle('store:clear-folder-cache', async () => {
   try {
     clearFolderCache()
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('store:clear-messages', async () => {
+  try {
+    clearMessages()
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }

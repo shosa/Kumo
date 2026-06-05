@@ -236,5 +236,7 @@
   "sidebar.iCloudStorage": "Spazio iCloud",
   "sidebar.searchShortcut": "Cerca  Ctrl+K",
   "sidebar.lastSync": "Ultima sincronizzazione alle",
-  "sidebar.notSynced": "Non ancora sincronizzato"
+  "sidebar.notSynced": "Non ancora sincronizzato",
+  "settings.clearMessages": "Cancella messaggi dal database",
+  "settings.clearMessagesDesc": "Rimuove tutti i messaggi locali — vengono riscaricati dal server alla prossima sincronizzazione"
 }

@@ -693,6 +693,12 @@ export function removeMessages(uids, folder) {
   scheduleSave()
 }
 
+export function clearMessages() {
+  const d = getDB()
+  d.run(`DELETE FROM messages`)
+  scheduleSave()
+}
+
 export function clearBodyCache() {
   const d = getDB()
   d.run(`UPDATE messages SET body_html = NULL, body_text = NULL, body_fetched = 0`)

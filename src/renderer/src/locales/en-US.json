@@ -236,5 +236,7 @@
   "sidebar.iCloudStorage": "iCloud Storage",
   "sidebar.searchShortcut": "Search  Ctrl+K",
   "sidebar.lastSync": "Last synced at",
-  "sidebar.notSynced": "Not yet synced"
+  "sidebar.notSynced": "Not yet synced",
+  "settings.clearMessages": "Clear message database",
+  "settings.clearMessagesDesc": "Removes all local messages — they will be re-downloaded on next sync"
 }

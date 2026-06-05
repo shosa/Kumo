@@ -11,6 +11,8 @@ export default function Settings() {
   const email = state.auth.email || ''
   const initials = email.slice(0, 2).toUpperCase() || '?'
 
+  const [clearingMsgs,     setClearingMsgs]     = useState(false)
+  const [msgsCleared,      setMsgsCleared]      = useState(false)
   const [clearingCache,    setClearingCache]    = useState(false)
   const [cacheCleared,     setCacheCleared]     = useState(false)
   const [clearingFolders,  setClearingFolders]  = useState(false)
@@ -36,6 +38,14 @@ export default function Settings() {
     window.api.auth.deleteCredentials()
     window.api.imap.disconnect()
     dispatch({ type: 'SET_UNAUTHENTICATED' })
+  }
+
+  async function handleClearMessages() {
+    setClearingMsgs(true)
+    await window.api.store.clearMessages()
+    dispatch({ type: 'SET_MESSAGES', payload: { messages: [], total: 0, page: 1, hasMore: false } })
+    setClearingMsgs(false); setMsgsCleared(true)
+    setTimeout(() => setMsgsCleared(false), 2500)
   }
 
   async function handleClearCache() {
@@ -217,6 +227,13 @@ export default function Settings() {
                   </button>
                 </div>
               )}
+              <div className="srow">
+                <div className="srow__txt">
+                  <div className="srow__name">{t('settings.clearMessages')}</div>
+                  <div className="srow__desc">{t('settings.clearMessagesDesc')}</div>
+                </div>
+                <ClearBtn loading={clearingMsgs} done={msgsCleared} onClick={handleClearMessages} />
+              </div>
               <div className="srow">
                 <div className="srow__txt">
                   <div className="srow__name">{t('settings.clearBodyCache')}</div>
