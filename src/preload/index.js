@@ -24,16 +24,16 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('imap:fetch-messages', folder, page, pageSize),
     fetchBody: (folder, uid) =>
       ipcRenderer.invoke('imap:fetch-body', folder, uid),
-    markRead: (folder, uid, read) =>
-      ipcRenderer.invoke('imap:mark-read', folder, uid, read),
-    starMessage: (folder, uid, starred) =>
-      ipcRenderer.invoke('imap:star-message', folder, uid, starred),
-    moveMessage: (folder, uid, destination) =>
-      ipcRenderer.invoke('imap:move-message', folder, uid, destination),
-    deleteMessage: (folder, uid, permanent) =>
-      ipcRenderer.invoke('imap:delete-message', folder, uid, permanent),
-    markJunk: (folder, uid, isJunk) =>
-      ipcRenderer.invoke('imap:mark-junk', folder, uid, isJunk),
+    markRead: (folder, uid, read, email) =>
+      ipcRenderer.invoke('imap:mark-read', folder, uid, read, email),
+    starMessage: (folder, uid, starred, email) =>
+      ipcRenderer.invoke('imap:star-message', folder, uid, starred, email),
+    moveMessage: (folder, uid, destination, email) =>
+      ipcRenderer.invoke('imap:move-message', folder, uid, destination, email),
+    deleteMessage: (folder, uid, permanent, email) =>
+      ipcRenderer.invoke('imap:delete-message', folder, uid, permanent, email),
+    markJunk: (folder, uid, isJunk, email) =>
+      ipcRenderer.invoke('imap:mark-junk', folder, uid, isJunk, email),
     search: (folder, query) =>
       ipcRenderer.invoke('imap:search', folder, query),
     syncInbox: () =>
@@ -42,12 +42,12 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('imap:mark-all-read', folder),
     emptyFolder: (folder) =>
       ipcRenderer.invoke('imap:empty-folder', folder),
-    bulkSetFlag: (folder, uids, flag, add) =>
-      ipcRenderer.invoke('imap:bulk-set-flag', folder, uids, flag, add),
-    bulkDelete: (folder, uids) =>
-      ipcRenderer.invoke('imap:bulk-delete', folder, uids),
-    bulkMove: (folder, uids, destination) =>
-      ipcRenderer.invoke('imap:bulk-move', folder, uids, destination),
+    bulkSetFlag: (folder, uids, flag, add, email) =>
+      ipcRenderer.invoke('imap:bulk-set-flag', folder, uids, flag, add, email),
+    bulkDelete: (folder, uids, email) =>
+      ipcRenderer.invoke('imap:bulk-delete', folder, uids, email),
+    bulkMove: (folder, uids, destination, email) =>
+      ipcRenderer.invoke('imap:bulk-move', folder, uids, destination, email),
     syncFolder: (folder) =>
       ipcRenderer.invoke('imap:sync-folder', folder),
     downloadAttachment: (folder, uid, partId, filename, email) =>
@@ -86,6 +86,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('store:get-viewer-data', id),
     getSyncState: (folder) =>
       ipcRenderer.invoke('store:get-sync-state', folder),
+    getPendingOpsCount: () =>
+      ipcRenderer.invoke('store:get-pending-ops-count'),
     readLocalFile: (filePath) =>
       ipcRenderer.invoke('store:read-local-file', filePath)
   },

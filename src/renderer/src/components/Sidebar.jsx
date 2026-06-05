@@ -149,6 +149,7 @@ export default function Sidebar() {
   const avatarRef = useRef(null)
   const [dragOverPath, setDragOverPath] = useState(null)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [pendingOps, setPendingOps] = useState(0)
 
   const tRef = useRef(t)
   useEffect(() => { tRef.current = t }, [t])
@@ -179,6 +180,18 @@ export default function Sidebar() {
   useEffect(() => {
     if (state.connectionStatus === 'connected') loadFolders()
   }, [state.connectionStatus, loadFolders])
+
+  useEffect(() => {
+    function refresh() {
+      window.api.store.getPendingOpsCount?.().then(r => {
+        if (r?.ok) setPendingOps(r.count)
+      })
+    }
+    refresh()
+    const offStart = window.api.on('sync:operation-start', refresh)
+    const offEnd   = window.api.on('sync:operation-end',   refresh)
+    return () => { offStart?.(); offEnd?.() }
+  }, [])
 
   function selectFolder(path) {
     if (path === state.folders.selected) return
@@ -321,10 +334,18 @@ export default function Sidebar() {
       {/* Footer: last sync + refresh */}
       <div className="sidebar__foot">
         <div className="storage">
-          <div className="storage__label" style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.4 }}>
-            {state.sync?.lastActivity
-              ? t('sidebar.lastSync') + ' ' + new Date(state.sync.lastActivity).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              : t('sidebar.notSynced')}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.4 }}>
+              {state.sync?.lastActivity
+                ? t('sidebar.lastSync') + ' ' + new Date(state.sync.lastActivity).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : t('sidebar.notSynced')}
+            </div>
+            {pendingOps > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--color-warning)', lineHeight: 1.4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--color-warning)', flexShrink: 0, display: 'inline-block' }} />
+                {pendingOps} {pendingOps === 1 ? 'azione in sospeso' : 'azioni in sospeso'}
+              </div>
+            )}
           </div>
         </div>
         <button

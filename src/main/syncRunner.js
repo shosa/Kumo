@@ -11,6 +11,10 @@ export function startSyncRunner(imapClients) {
   logSync('[SyncRunner] Started — polling every 10s')
 }
 
+export async function flushSyncQueue(imapClients) {
+  await runOnce(imapClients).catch(() => {})
+}
+
 export function stopSyncRunner() {
   if (runnerInterval) {
     clearInterval(runnerInterval)

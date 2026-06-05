@@ -79,10 +79,10 @@ Kumo will connect to Apple's mail servers. This may take 10–30 seconds on the 
 Once connected, your inbox will appear with your most recent messages. Kumo will continue receiving new mail automatically in the background as long as it is running.
 
 **What you see:**
-- **Left sidebar** — Your mailboxes (Inbox, Sent, Drafts, Trash, Junk, and any custom folders you have created in iCloud).
+- **Left rail** — A narrow icon bar for switching between Mail, Contacts, Calendar, and Settings, plus a search shortcut and your account avatar.
+- **Folder sidebar** — Your mailboxes (Inbox, Sent, Drafts, Trash, Junk, and any custom folders you have created in iCloud).
 - **Middle column** — The list of messages in the selected folder.
 - **Right pane** — The full content of the selected message.
-- **Bottom of the sidebar** — Tabs to switch between Mail, Contacts, and Calendar.
 
 ---
 
@@ -125,7 +125,7 @@ The following features are not yet available in this version of Kumo:
 
 **Fix:**
 - Check that you have an active internet connection.
-- Click the refresh button (circular arrow) at the bottom-left of the sidebar to manually check for new mail.
+- Click the refresh button (circular arrow) at the bottom of the folder sidebar to manually check for new mail.
 - If the connection indicator shows "Reconnecting…", wait a moment — Kumo reconnects automatically.
 - If the problem persists, sign out (click your avatar at the bottom of the sidebar → Sign Out) and sign in again.
 
@@ -143,7 +143,7 @@ The following features are not yet available in this version of Kumo:
 
 **Most likely cause:** Contacts and calendar data are not synced automatically — you must trigger a manual sync.
 
-**Fix:** Switch to the Contacts or Calendar tab using the icons at the bottom of the sidebar. Look for a **Sync** button and click it. The sync may take up to a minute depending on the number of contacts and events in your account.
+**Fix:** Switch to the Contacts or Calendar view using the icons in the left rail. Look for a **Sync** button and click it. The sync may take up to a minute depending on the number of contacts and events in your account.
 
 ---
 

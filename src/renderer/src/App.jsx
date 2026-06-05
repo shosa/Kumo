@@ -13,18 +13,14 @@ import TitleBar from './components/TitleBar'
 import UpdateBanner from './components/UpdateBanner'
 import CommandPalette from './components/CommandPalette'
 
-const SIDEBAR_MIN = 180
-const SIDEBAR_MAX = 320
 const MSGLIST_MIN = 220
 const MSGLIST_MAX = 480
 
 function loadWidths() {
   try {
-    return {
-      sidebar: parseInt(localStorage.getItem('pane-sidebar') || '236', 10),
-      msglist: parseInt(localStorage.getItem('pane-msglist') || '320', 10)
-    }
-  } catch { return { sidebar: 236, msglist: 320 } }
+    const ml = parseInt(localStorage.getItem('pane-msglist') || '', 10)
+    return { msglist: (ml >= MSGLIST_MIN && ml <= MSGLIST_MAX) ? ml : 320 }
+  } catch { return { msglist: 320 } }
 }
 
 function saveWidth(key, value) {
@@ -34,16 +30,21 @@ function saveWidth(key, value) {
 
 function useResizeHandle(containerRef, key, min, max, onResize) {
   const dragging = useRef(false)
-  const startX   = useRef(0)
-  const startW   = useRef(0)
+  const hasMoved  = useRef(false)
+  const startX    = useRef(0)
+  const startW    = useRef(0)
+  const currentW  = useRef(0)
 
   const onMouseDown = useCallback((e) => {
     e.preventDefault()
     dragging.current = true
+    hasMoved.current = false
     startX.current = e.clientX
-    startW.current = containerRef.current
+    const w = containerRef.current
       ? containerRef.current.getBoundingClientRect().width
       : (min + max) / 2
+    startW.current = w
+    currentW.current = w
     document.body.style.cursor = 'col-resize'
     document.body.style.userSelect = 'none'
   }, [containerRef, min, max])
@@ -52,6 +53,8 @@ function useResizeHandle(containerRef, key, min, max, onResize) {
     function onMouseMove(e) {
       if (!dragging.current) return
       const newW = Math.min(max, Math.max(min, startW.current + (e.clientX - startX.current)))
+      currentW.current = newW
+      hasMoved.current = true
       if (containerRef.current) containerRef.current.style.width = `${newW}px`
       onResize(newW)
     }
@@ -60,8 +63,8 @@ function useResizeHandle(containerRef, key, min, max, onResize) {
       dragging.current = false
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
-      if (containerRef.current) {
-        saveWidth(key, parseInt(containerRef.current.style.width || '0', 10))
+      if (hasMoved.current) {
+        saveWidth(key, Math.round(currentW.current))
       }
     }
     window.addEventListener('mousemove', onMouseMove)
@@ -82,29 +85,24 @@ export default function App() {
   const [cmdkOpen, setCmdkOpen] = useState(false)
 
   const widths = useRef(loadWidths())
-  const sidebarRef = useRef(null)
   const msglistRef = useRef(null)
 
-  // Hydrate widths from settings (loaded async) if localStorage was empty on startup
+  // Hydrate msglist width from settings if localStorage was empty on startup
   useEffect(() => {
-    if (state.settings.pane_sidebar && !localStorage.getItem('pane-sidebar')) {
-      widths.current.sidebar = state.settings.pane_sidebar
-    }
     if (state.settings.pane_msglist && !localStorage.getItem('pane-msglist')) {
-      widths.current.msglist = state.settings.pane_msglist
+      const w = state.settings.pane_msglist
+      widths.current.msglist = w
+      if (msglistRef.current) msglistRef.current.style.width = `${w}px`
     }
-  }, [state.settings.pane_sidebar, state.settings.pane_msglist])
+  }, [state.settings.pane_msglist])
 
-  // Re-apply stored widths every time the mail view mounts (conditional render unmounts on view switch)
+  // Re-apply stored msglist width when switching back to mail view
   useEffect(() => {
     if (view !== 'mail') return
-    if (sidebarRef.current) sidebarRef.current.style.width = `${widths.current.sidebar}px`
     if (msglistRef.current) msglistRef.current.style.width = `${widths.current.msglist}px`
   }, [view])
 
-  const onSidebarResize = useCallback(w => { widths.current.sidebar = w }, [])
   const onMsglistResize = useCallback(w => { widths.current.msglist = w }, [])
-  const onSidebarDrag = useResizeHandle(sidebarRef, 'sidebar', SIDEBAR_MIN, SIDEBAR_MAX, onSidebarResize)
   const onMsglistDrag = useResizeHandle(msglistRef, 'msglist', MSGLIST_MIN, MSGLIST_MAX, onMsglistResize)
 
   // Badge
@@ -177,7 +175,7 @@ export default function App() {
   useEffect(() => {
     if (!state.auth.isAuthenticated) return
     function onKeyDown(e) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault(); setCmdkOpen(v => !v); return
       }
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
@@ -207,7 +205,7 @@ export default function App() {
             const msg = state.messages.selected
             if (msg.folder) {
               dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
-              window.api.imap.deleteMessage(msg.folder, msg.uid, false)
+              window.api.imap.deleteMessage(msg.folder, msg.uid, false, state.auth.email)
             }
           }
           break
@@ -237,11 +235,10 @@ export default function App() {
         <Rail onSearch={() => setCmdkOpen(true)} />
         {view === 'mail' && (
           <>
-            <div className="app-layout__sidebar" ref={sidebarRef}>
+            <div className="app-layout__sidebar">
               <Sidebar />
             </div>
-            <div className="resize-handle resize-handle--vertical" onMouseDown={onSidebarDrag} />
-            <div className="app-layout__msglist" ref={msglistRef}>
+            <div className="app-layout__msglist" ref={msglistRef} style={{ width: widths.current.msglist }}>
               <MessageList />
             </div>
             <div className="resize-handle resize-handle--vertical" onMouseDown={onMsglistDrag} />
@@ -255,7 +252,7 @@ export default function App() {
         {view === 'settings' && <div className="app-layout__full"><Settings /></div>}
       </div>
       {state.compose.isOpen && <ComposeWindow />}
-      {cmdkOpen && (
+{cmdkOpen && (
         <CommandPalette
           onClose={() => setCmdkOpen(false)}
           selectedMessage={state.messages.selected}

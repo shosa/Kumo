@@ -152,7 +152,7 @@ export default function MessageList() {
     setSelectedKeys(new Set())
     dispatch({ type: 'SELECT_MESSAGE', payload: msg })
     if (!msg.flags?.includes('\\Seen') && msg.folder) {
-      window.api.imap.markRead(msg.folder, msg.uid, true)
+      window.api.imap.markRead(msg.folder, msg.uid, true, state.auth.email)
       dispatch({
         type: 'UPDATE_MESSAGE_FLAGS',
         payload: { uid: msg.uid, folder: msg.folder, flags: [...(msg.flags || []), '\\Seen'] }
@@ -241,34 +241,34 @@ export default function MessageList() {
 
       case 'markRead':
         messages.forEach(m => dispatch({ type: 'UPDATE_MESSAGE_FLAGS', payload: { uid: m.uid, folder: m.folder, flags: [...(m.flags || []), '\\Seen'] } }))
-        window.api.imap.bulkSetFlag(folder0, uids, '\\Seen', true)
+        window.api.imap.bulkSetFlag(folder0, uids, '\\Seen', true, state.auth.email)
         break
       case 'markUnread':
         messages.forEach(m => dispatch({ type: 'UPDATE_MESSAGE_FLAGS', payload: { uid: m.uid, folder: m.folder, flags: (m.flags || []).filter(f => f !== '\\Seen') } }))
-        window.api.imap.bulkSetFlag(folder0, uids, '\\Seen', false)
+        window.api.imap.bulkSetFlag(folder0, uids, '\\Seen', false, state.auth.email)
         break
       case 'star':
         messages.forEach(m => dispatch({ type: 'UPDATE_MESSAGE_FLAGS', payload: { uid: m.uid, folder: m.folder, flags: [...(m.flags || []), '\\Flagged'] } }))
-        window.api.imap.bulkSetFlag(folder0, uids, '\\Flagged', true)
+        window.api.imap.bulkSetFlag(folder0, uids, '\\Flagged', true, state.auth.email)
         break
       case 'unstar':
         messages.forEach(m => dispatch({ type: 'UPDATE_MESSAGE_FLAGS', payload: { uid: m.uid, folder: m.folder, flags: (m.flags || []).filter(f => f !== '\\Flagged') } }))
-        window.api.imap.bulkSetFlag(folder0, uids, '\\Flagged', false)
+        window.api.imap.bulkSetFlag(folder0, uids, '\\Flagged', false, state.auth.email)
         break
       case 'move':
         messages.forEach(m => dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: m.uid, folder: m.folder } }))
         setSelectedKeys(new Set())
-        window.api.imap.bulkMove(folder0, uids, data)
+        window.api.imap.bulkMove(folder0, uids, data, state.auth.email)
         break
       case 'junk':
         messages.forEach(m => dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: m.uid, folder: m.folder } }))
         setSelectedKeys(new Set())
-        Promise.all(messages.map(m => window.api.imap.markJunk(m.folder, m.uid, true)))
+        Promise.all(messages.map(m => window.api.imap.markJunk(m.folder, m.uid, true, state.auth.email)))
         break
       case 'delete':
         messages.forEach(m => dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: m.uid, folder: m.folder } }))
         setSelectedKeys(new Set())
-        window.api.imap.bulkDelete(folder0, uids)
+        window.api.imap.bulkDelete(folder0, uids, state.auth.email)
         break
     }
   }
@@ -298,7 +298,7 @@ export default function MessageList() {
 
   const primaryUid = state.messages.selected?.uid
 
-  function groupByThread(messages) {
+  function groupByThread(messages, sort) {
     const threadMap = new Map()
     for (const msg of messages) {
       const tid = msg.thread_id || `single-${msg.uid}-${msg.folder}`
@@ -308,13 +308,18 @@ export default function MessageList() {
     for (const msgs of threadMap.values()) {
       msgs.sort((a, b) => (a.date || 0) - (b.date || 0))
     }
-    return [...threadMap.entries()]
-      .map(([threadId, msgs]) => ({
-        threadId,
-        messages: msgs,
-        latest: msgs.reduce((a, b) => (b.date || 0) > (a.date || 0) ? b : a)
-      }))
-      .sort((a, b) => (b.latest.date || 0) - (a.latest.date || 0))
+    const threads = [...threadMap.entries()].map(([threadId, msgs]) => ({
+      threadId,
+      messages: msgs,
+      latest: msgs.reduce((a, b) => (b.date || 0) > (a.date || 0) ? b : a)
+    }))
+    threads.sort((a, b) => {
+      if (sort === 'date-asc') return (a.latest.date || 0) - (b.latest.date || 0)
+      if (sort === 'from')    return (a.latest.from_name || a.latest.from_email || '').localeCompare(b.latest.from_name || b.latest.from_email || '')
+      if (sort === 'subject') return (a.latest.subject || '').localeCompare(b.latest.subject || '')
+      return (b.latest.date || 0) - (a.latest.date || 0)
+    })
+    return threads
   }
 
   return (
@@ -404,7 +409,7 @@ export default function MessageList() {
         </div>
       ) : (
         <div className="list__body scroll" ref={listRef} onScroll={handleScroll} role="list" aria-label="Messages">
-          {groupByThread(displayMessages).map(({ threadId, messages: threadMsgs, latest }) => {
+          {groupByThread(displayMessages, sortBy).map(({ threadId, messages: threadMsgs, latest }) => {
             const isExpanded = expandedThreads.has(threadId)
             const isMulti    = threadMsgs.length > 1
             const msgsToShow = isExpanded ? threadMsgs : [latest]

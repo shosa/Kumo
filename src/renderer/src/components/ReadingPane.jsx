@@ -199,6 +199,10 @@ function buildEmailIframeDoc(renderHtml) {
   pre { white-space: pre-wrap; background: #f5f5f7; padding: 12px; border-radius: 8px; font-size: 13px; }
   blockquote { border-left: 3px solid #d2d2d7; margin: 8px 0 8px 8px; padding-left: 12px; color: #6e6e73; }
   table { border-collapse: collapse; max-width: 100%; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.32); }
 </style>
 </head>
 <body>${renderHtml}<script>${bridgeScript}</script></body>
@@ -353,7 +357,7 @@ export default function ReadingPane() {
   function handleDelete() {
     if (!msg || !msg.folder) return
     dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
-    window.api.imap.deleteMessage(msg.folder, msg.uid, false)
+    window.api.imap.deleteMessage(msg.folder, msg.uid, false, state.auth.email)
   }
 
   function handleArchive() {
@@ -369,7 +373,7 @@ export default function ReadingPane() {
       ? msg.flags.filter(f => f !== '\\Flagged')
       : [...(msg.flags || []), '\\Flagged']
     dispatch({ type: 'UPDATE_MESSAGE_FLAGS', payload: { uid: msg.uid, folder: msg.folder, flags: newFlags } })
-    if (msg.folder) window.api.imap.starMessage(msg.folder, msg.uid, !isStarred)
+    if (msg.folder) window.api.imap.starMessage(msg.folder, msg.uid, !isStarred, state.auth.email)
   }
 
   function handleToggleRead() {
@@ -379,13 +383,13 @@ export default function ReadingPane() {
       ? msg.flags.filter(f => f !== '\\Seen')
       : [...(msg.flags || []), '\\Seen']
     dispatch({ type: 'UPDATE_MESSAGE_FLAGS', payload: { uid: msg.uid, folder: msg.folder, flags: newFlags } })
-    if (msg.folder) window.api.imap.markRead(msg.folder, msg.uid, !isRead)
+    if (msg.folder) window.api.imap.markRead(msg.folder, msg.uid, !isRead, state.auth.email)
   }
 
   function handleMarkJunk() {
     if (!msg || !msg.folder) return
     dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
-    window.api.imap.markJunk(msg.folder, msg.uid, true)
+    window.api.imap.markJunk(msg.folder, msg.uid, true, state.auth.email)
   }
 
   function handleLoadImages() {

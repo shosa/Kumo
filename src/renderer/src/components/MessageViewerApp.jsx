@@ -177,6 +177,7 @@ export default function MessageViewerApp({ message }) {
   const [body, setBody] = useState(null)
   const [bodyLoading, setBodyLoading] = useState(false)
   const [settings, setSettings] = useState({ theme: 'light', blockRemoteImages: true, language: 'en-US' })
+  const [accountEmail, setAccountEmail] = useState(null)
   const [flags, setFlags] = useState(message?.flags || [])
   const [imagesBlocked, setImagesBlocked] = useState(true)
   const [imagesLoadedByUser, setImagesLoadedByUser] = useState(false)
@@ -199,6 +200,9 @@ export default function MessageViewerApp({ message }) {
         setSettings(r.settings)
         setImagesBlocked(r.settings.blockRemoteImages ?? true)
       }
+    })
+    window.api.auth.getCredentials().then(r => {
+      if (r.ok && r.creds) setAccountEmail(r.creds.email)
     })
   }, [])
 
@@ -253,23 +257,23 @@ export default function MessageViewerApp({ message }) {
 
   async function handleToggleStar() {
     const next = !isStarred
-    await window.api.imap.starMessage(message.folder, message.uid, next)
+    await window.api.imap.starMessage(message.folder, message.uid, next, accountEmail)
     setFlags(next ? [...flags, '\\Flagged'] : flags.filter(f => f !== '\\Flagged'))
   }
 
   async function handleToggleRead() {
     const next = !isRead
-    await window.api.imap.markRead(message.folder, message.uid, next)
+    await window.api.imap.markRead(message.folder, message.uid, next, accountEmail)
     setFlags(next ? [...flags, '\\Seen'] : flags.filter(f => f !== '\\Seen'))
   }
 
   async function handleDelete() {
-    await window.api.imap.deleteMessage(message.folder, message.uid, false)
+    await window.api.imap.deleteMessage(message.folder, message.uid, false, accountEmail)
     window.close()
   }
 
   async function handleMarkJunk() {
-    await window.api.imap.markJunk(message.folder, message.uid, true)
+    await window.api.imap.markJunk(message.folder, message.uid, true, accountEmail)
     window.close()
   }
 
