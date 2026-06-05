@@ -1,5 +1,6 @@
 import React from 'react'
 import { useAppState, useAppDispatch } from '../context/AppContext'
+import { useTranslation } from '../i18n/index'
 import {
   IconMail, IconContacts, IconCalendar, IconSearch, IconSettings
 } from './Icons'
@@ -16,6 +17,7 @@ function avatarColor(email) {
 export default function Rail({ onSearch }) {
   const state = useAppState()
   const dispatch = useAppDispatch()
+  const t = useTranslation()
   const view = state.view || 'mail'
   const email = state.auth.email || ''
   const initials = email ? email.slice(0, 2).toUpperCase() : '?'
@@ -37,16 +39,16 @@ export default function Rail({ onSearch }) {
   return (
     <div className="rail">
       <div className="rail__mark" title="Kumo" />
-      <NavBtn id="mail"     Icon={IconMail}     label="Posta"      badge={unread || null} />
-      <NavBtn id="contacts" Icon={IconContacts} label="Contatti" />
-      <NavBtn id="calendar" Icon={IconCalendar} label="Calendario" />
-      <button className="rail__btn" title="Cerca  Ctrl+K" onClick={onSearch}>
+      <NavBtn id="mail"     Icon={IconMail}     label={t('nav.mail')}      badge={unread || null} />
+      <NavBtn id="contacts" Icon={IconContacts} label={t('nav.contacts')} />
+      <NavBtn id="calendar" Icon={IconCalendar} label={t('nav.calendar')} />
+      <button className="rail__btn" title={t('sidebar.searchShortcut')} onClick={onSearch}>
         <IconSearch size={20} />
       </button>
       <div className="rail__sep" />
       <button
         className={`rail__btn${view === 'settings' ? ' active' : ''}`}
-        title="Impostazioni"
+        title={t('sidebar.settings')}
         onClick={() => setView('settings')}
       >
         <IconSettings size={20} />

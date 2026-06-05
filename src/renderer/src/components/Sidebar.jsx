@@ -263,7 +263,7 @@ export default function Sidebar() {
       {/* Compose button */}
       <button className="compose-btn" onClick={openCompose}>
         <IconEdit size={15} />
-        Nuovo messaggio
+        {t('sidebar.compose')}
         <kbd>C</kbd>
       </button>
 
@@ -324,7 +324,7 @@ export default function Sidebar() {
           <div className="storage__bar">
             <div className="storage__fill" style={{ width: '34%' }} />
           </div>
-          <div className="storage__label">Spazio iCloud</div>
+          <div className="storage__label">{t('sidebar.iCloudStorage')}</div>
         </div>
         <button
           className="icon-btn"

@@ -50,7 +50,7 @@ const FOLDER_LABEL_KEY = {
 
 function msgKey(msg) { return `${msg.folder}-${msg.uid}` }
 
-const sortLabels = { 'date-desc': 'Più recenti ↓', 'date-asc': 'Più vecchi ↑', from: 'Mittente' }
+const getSortLabels = (t) => ({ 'date-desc': t('sort.newest') + ' ↓', 'date-asc': t('sort.oldest') + ' ↑', from: t('sort.from') })
 
 export default function MessageList() {
   const state = useAppState()
@@ -336,7 +336,7 @@ export default function MessageList() {
             </span>
           )}
           <div className="list__head-actions">
-            <button className="icon-btn" onClick={handleSync} title="Aggiorna">
+            <button className="icon-btn" onClick={handleSync} title={t('folder.refresh')}>
               <IconRefresh size={16} className={isSyncing ? 'spin' : ''} />
             </button>
           </div>
@@ -345,7 +345,7 @@ export default function MessageList() {
           <span className="search__icon"><IconSearch size={15} /></span>
           <input
             ref={searchInputRef}
-            placeholder="Cerca nella posta…"
+            placeholder={t('messages.searchInbox')}
             value={localSearch}
             onChange={e => handleSearchChange(e.target.value)}
           />
@@ -360,7 +360,7 @@ export default function MessageList() {
 
       <div className="list__filters">
         <div className="seg">
-          {[['all','Tutte'],['unread','Non lette'],['starred','Speciali']].map(([f,l]) => (
+          {[['all', t('filter.all')], ['unread', t('filter.unread')], ['starred', t('filter.starred')]].map(([f, l]) => (
             <button
               key={f}
               className={`seg__btn${activeFilter === f ? ' active' : ''}`}
@@ -369,7 +369,7 @@ export default function MessageList() {
           ))}
         </div>
         <button className="sortbtn" onClick={cycleSortBy}>
-          {sortLabels[sortBy]} <IconArrowDown size={13} />
+          {getSortLabels(t)[sortBy]} <IconArrowDown size={13} />
         </button>
       </div>
 
@@ -421,6 +421,7 @@ export default function MessageList() {
                     isThreadChild={idx > 0}
                     contactMap={contactMap}
                     state={state}
+                    t={t}
                     onQuickAction={(type) => handleContextAction(type, [msg])}
                     onThreadExpand={isMulti && idx === 0 ? () => setExpandedThreads(prev => {
                       const next = new Set(prev)
@@ -474,7 +475,7 @@ export default function MessageList() {
   )
 }
 
-function MessageItem({ message, selected, multiSelected, threadCount, isThreadChild, onThreadExpand, onClick, onDoubleClick, onContextMenu, onDragStart, onQuickAction, contactMap, state }) {
+function MessageItem({ message, selected, multiSelected, threadCount, isThreadChild, onThreadExpand, onClick, onDoubleClick, onContextMenu, onDragStart, onQuickAction, contactMap, state, t }) {
   const isUnread  = !message.flags?.includes('\\Seen')
   const isStarred = message.flags?.includes('\\Flagged')
   const hasAttachments = message.has_attachments || false
@@ -544,22 +545,22 @@ function MessageItem({ message, selected, multiSelected, threadCount, isThreadCh
         <div className="mail__qa" onClick={e => e.stopPropagation()}>
           <button
             className="qa-btn"
-            title="Rispondi"
+            title={t('action.reply')}
             onClick={e => { e.stopPropagation(); onQuickAction('reply') }}
           ><IconReply size={15} /></button>
           <button
             className={`qa-btn${isStarred ? ' on' : ''}`}
-            title="Stella"
+            title={isStarred ? t('action.unstar') : t('action.star')}
             onClick={e => { e.stopPropagation(); onQuickAction(isStarred ? 'unstar' : 'star') }}
           ><IconStar size={15} fill={isStarred ? 'currentColor' : 'none'} /></button>
           <button
             className="qa-btn"
-            title={isUnread ? 'Segna letta' : 'Segna non letta'}
+            title={isUnread ? t('action.markRead') : t('action.markUnread')}
             onClick={e => { e.stopPropagation(); onQuickAction(isUnread ? 'markRead' : 'markUnread') }}
           ><IconMarkRead size={15} /></button>
           <button
             className="qa-btn qa-btn--danger"
-            title="Elimina"
+            title={t('action.delete')}
             onClick={e => { e.stopPropagation(); onQuickAction('delete') }}
           ><IconTrash size={15} /></button>
         </div>

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useAppDispatch } from '../context/AppContext'
+import { useTranslation } from '../i18n/index'
 import {
   IconEdit, IconReply, IconSearch, IconInbox, IconStar,
   IconSent, IconContacts, IconCalendar, IconSettings, IconChevronRight
@@ -11,25 +12,26 @@ const ICON_MAP = {
   Contacts: IconContacts, Calendar: IconCalendar, Settings: IconSettings
 }
 
-const COMMANDS = [
-  { id: 'compose',      group: 'Azioni',      label: 'Nuovo messaggio',          icon: 'Edit',     kbd: 'C' },
-  { id: 'reply',        group: 'Azioni',      label: 'Rispondi al messaggio',    icon: 'Reply',    kbd: 'R' },
-  { id: 'search',       group: 'Azioni',      label: 'Cerca nella posta',        icon: 'Search' },
-  { id: 'go-inbox',     group: 'Vai a',       label: 'Posta in arrivo',          icon: 'Inbox',    kbd: 'G I' },
-  { id: 'go-starred',   group: 'Vai a',       label: 'Messaggi speciali',        icon: 'Star' },
-  { id: 'go-sent',      group: 'Vai a',       label: 'Inviati',                  icon: 'Sent' },
-  { id: 'go-contacts',  group: 'Vai a',       label: 'Contatti',                 icon: 'Contacts' },
-  { id: 'go-calendar',  group: 'Vai a',       label: 'Calendario',               icon: 'Calendar' },
-  { id: 'go-settings',  group: 'Vai a',       label: 'Impostazioni',             icon: 'Settings' },
-  { id: 'theme',        group: 'Preferenze',  label: 'Cambia tema chiaro/scuro', icon: 'Settings' },
-  { id: 'density',      group: 'Preferenze',  label: 'Cambia densità elenco',    icon: 'Settings' }
-]
-
 export default function CommandPalette({ onClose, selectedMessage, currentTheme, currentDensity }) {
   const dispatch = useAppDispatch()
+  const t = useTranslation()
   const [q, setQ] = useState('')
   const [idx, setIdx] = useState(0)
   const inputRef = useRef(null)
+
+  const COMMANDS = [
+    { id: 'compose',     group: t('cmdk.group.actions'),      label: t('sidebar.compose'),          icon: 'Edit',     kbd: 'C' },
+    { id: 'reply',       group: t('cmdk.group.actions'),      label: t('cmdk.cmd.reply'),            icon: 'Reply',    kbd: 'R' },
+    { id: 'search',      group: t('cmdk.group.actions'),      label: t('cmdk.cmd.search'),           icon: 'Search' },
+    { id: 'go-inbox',    group: t('cmdk.group.navigate'),     label: t('folder.inbox'),              icon: 'Inbox',    kbd: 'G I' },
+    { id: 'go-starred',  group: t('cmdk.group.navigate'),     label: t('cmdk.cmd.goStarred'),        icon: 'Star' },
+    { id: 'go-sent',     group: t('cmdk.group.navigate'),     label: t('folder.sent'),               icon: 'Sent' },
+    { id: 'go-contacts', group: t('cmdk.group.navigate'),     label: t('nav.contacts'),              icon: 'Contacts' },
+    { id: 'go-calendar', group: t('cmdk.group.navigate'),     label: t('nav.calendar'),              icon: 'Calendar' },
+    { id: 'go-settings', group: t('cmdk.group.navigate'),     label: t('sidebar.settings'),          icon: 'Settings' },
+    { id: 'theme',       group: t('cmdk.group.preferences'),  label: t('cmdk.cmd.toggleTheme'),      icon: 'Settings' },
+    { id: 'density',     group: t('cmdk.group.preferences'),  label: t('cmdk.cmd.toggleDensity'),    icon: 'Settings' }
+  ]
 
   const filtered = COMMANDS.filter(c => c.label.toLowerCase().includes(q.toLowerCase()))
 
@@ -73,7 +75,7 @@ export default function CommandPalette({ onClose, selectedMessage, currentTheme,
           <IconSearch size={19} />
           <input
             ref={inputRef}
-            placeholder="Cerca comandi, persone, email…"
+            placeholder={t('cmdk.placeholder')}
             value={q}
             onChange={e => setQ(e.target.value)}
             onKeyDown={onKey}
@@ -81,7 +83,7 @@ export default function CommandPalette({ onClose, selectedMessage, currentTheme,
         </div>
         <div className="cmdk__list scroll">
           {filtered.length === 0
-            ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-4)', fontSize: 13 }}>Nessun risultato</div>
+            ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-4)', fontSize: 13 }}>{t('cmdk.noResults')}</div>
             : filtered.map((c, i) => {
                 const showGroup = c.group !== lastGroup; lastGroup = c.group
                 const Ic = ICON_MAP[c.icon] || IconChevronRight

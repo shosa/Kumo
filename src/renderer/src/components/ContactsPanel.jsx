@@ -149,11 +149,11 @@ export default function ContactsPanel() {
               className="act act--primary"
               onClick={() => handleComposeToContact(selected)}
             >
-              <IconMail size={15} /> Email
+              <IconMail size={15} /> {t('contacts.fieldEmail')}
             </button>
             {(selected.phones?.[0]) && (
               <button className="act">
-                <IconPhone size={15} /> Chiama
+                <IconPhone size={15} /> {t('action.phone')}
               </button>
             )}
           </div>
@@ -162,7 +162,7 @@ export default function ContactsPanel() {
               <div key={i} className="cfield">
                 <span className="cfield__ic"><IconMail size={17} /></span>
                 <div>
-                  <div className="cfield__label">Email</div>
+                  <div className="cfield__label">{t('contacts.fieldEmail')}</div>
                   <div className="cfield__val">
                     <a href="#" onClick={ev => { ev.preventDefault(); handleComposeToContact({ ...selected, email }) }}>
                       {email}
@@ -175,7 +175,7 @@ export default function ContactsPanel() {
               <div key={i} className="cfield">
                 <span className="cfield__ic"><IconPhone size={17} /></span>
                 <div>
-                  <div className="cfield__label">Telefono</div>
+                  <div className="cfield__label">{t('contacts.fieldPhone')}</div>
                   <div className="cfield__val">{phone}</div>
                 </div>
               </div>
@@ -184,7 +184,7 @@ export default function ContactsPanel() {
               <div className="cfield">
                 <span className="cfield__ic"><IconBuilding size={17} /></span>
                 <div>
-                  <div className="cfield__label">Azienda</div>
+                  <div className="cfield__label">{t('contacts.fieldCompany')}</div>
                   <div className="cfield__val">{selected.organization}</div>
                 </div>
               </div>
@@ -193,7 +193,7 @@ export default function ContactsPanel() {
               <div className="cfield">
                 <span className="cfield__ic" style={{ fontSize: 17 }}>🎂</span>
                 <div>
-                  <div className="cfield__label">Compleanno</div>
+                  <div className="cfield__label">{t('contacts.fieldBirthday')}</div>
                   <div className="cfield__val">{formatBirthday(selected.birthday)}</div>
                 </div>
               </div>
@@ -202,7 +202,7 @@ export default function ContactsPanel() {
               <div className="cfield">
                 <span className="cfield__ic"><IconPin size={17} /></span>
                 <div>
-                  <div className="cfield__label">Note</div>
+                  <div className="cfield__label">{t('contacts.fieldNotes')}</div>
                   <div className="cfield__val">{selected.notes}</div>
                 </div>
               </div>

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { useAppState, useAppDispatch } from '../context/AppContext'
+import { useTranslation } from '../i18n/index'
 import { IconSignOut, IconGlobe, IconClearCache, IconCheck, IconFolderOpen, IconTrash } from './Icons'
 
 export default function Settings() {
   const state = useAppState()
   const dispatch = useAppDispatch()
+  const t = useTranslation()
   const s = state.settings
   const email = state.auth.email || ''
   const initials = email.slice(0, 2).toUpperCase() || '?'
@@ -27,7 +29,7 @@ export default function Settings() {
 
   function update(key, value) {
     dispatch({ type: 'UPDATE_SETTINGS', payload: { [key]: value } })
-    window.api.settings?.set?.({ [key]: value })
+    window.api.settings.save({ [key]: value })
   }
 
   function signOut() {
@@ -107,28 +109,28 @@ export default function Settings() {
     <div className="full">
       <div className="settings scroll">
         <div className="settings__inner">
-          <div className="settings__title">Impostazioni</div>
-          <div className="settings__sub">Personalizza l'aspetto e il comportamento di Kumo</div>
+          <div className="settings__title">{t('settings.title')}</div>
+          <div className="settings__sub">{t('settings.blockImagesDesc')}</div>
 
           {/* Aspetto */}
           <div className="sset">
-            <div className="sset__label">Aspetto</div>
+            <div className="sset__label">{t('settings.appearance')}</div>
             <div className="sset__card">
               <div className="srow">
                 <div className="srow__txt">
-                  <div className="srow__name">Tema</div>
-                  <div className="srow__desc">Chiaro o scuro</div>
+                  <div className="srow__name">{t('settings.theme')}</div>
+                  <div className="srow__desc">{t('settings.themeDesc')}</div>
                 </div>
                 <SegSm
                   value={s.theme === 'dark' ? 'dark' : 'light'}
-                  options={[['light', 'Chiaro'], ['dark', 'Scuro']]}
+                  options={[['light', t('settings.themeLight')], ['dark', t('settings.themeDark')]]}
                   onChange={v => update('theme', v)}
                 />
               </div>
               <div className="srow">
                 <div className="srow__txt">
-                  <div className="srow__name">Colore accento</div>
-                  <div className="srow__desc">Tinta dei pulsanti e degli elementi attivi</div>
+                  <div className="srow__name">{t('settings.accentColor')}</div>
+                  <div className="srow__desc">{t('settings.accentColorDesc')}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   {ACCENTS.map(c => (
@@ -146,12 +148,12 @@ export default function Settings() {
               </div>
               <div className="srow">
                 <div className="srow__txt">
-                  <div className="srow__name">Densità elenco</div>
-                  <div className="srow__desc">Quante email mostrare a schermo</div>
+                  <div className="srow__name">{t('settings.displayDensity')}</div>
+                  <div className="srow__desc">{t('settings.densityDesc')}</div>
                 </div>
                 <SegSm
                   value={s.displayDensity === 'comfortable' ? 'comfortable' : 'compact'}
-                  options={[['compact', 'Compatta'], ['comfortable', 'Comoda']]}
+                  options={[['compact', t('settings.density.compact')], ['comfortable', t('settings.density.comfortable')]]}
                   onChange={v => update('displayDensity', v)}
                 />
               </div>
@@ -160,19 +162,19 @@ export default function Settings() {
 
           {/* Stile elenco */}
           <div className="sset">
-            <div className="sset__label">Stile elenco email</div>
+            <div className="sset__label">{t('settings.listStyle')}</div>
             <div className="sset__card">
               <div className="srow">
                 <div className="srow__txt">
-                  <div className="srow__name">Mostra avatar</div>
-                  <div className="srow__desc">Iniziali colorate accanto a ogni messaggio</div>
+                  <div className="srow__name">{t('settings.showAvatars')}</div>
+                  <div className="srow__desc">{t('settings.showAvatarsDesc')}</div>
                 </div>
                 <Switch on={s.showAvatars !== false} onChange={() => update('showAvatars', !(s.showAvatars !== false))} />
               </div>
               <div className="srow">
                 <div className="srow__txt">
-                  <div className="srow__name">Anteprima testo</div>
-                  <div className="srow__desc">Riga di anteprima del contenuto</div>
+                  <div className="srow__name">{t('settings.showPreview')}</div>
+                  <div className="srow__desc">{t('settings.showPreviewDesc')}</div>
                 </div>
                 <Switch on={s.showPreview !== false} onChange={() => update('showPreview', !(s.showPreview !== false))} />
               </div>
@@ -181,19 +183,19 @@ export default function Settings() {
 
           {/* Privacy */}
           <div className="sset">
-            <div className="sset__label">Privacy e notifiche</div>
+            <div className="sset__label">{t('settings.privacy')}</div>
             <div className="sset__card">
               <div className="srow">
                 <div className="srow__txt">
-                  <div className="srow__name">Blocca immagini remote</div>
-                  <div className="srow__desc">Impedisce il caricamento di pixel di tracciamento</div>
+                  <div className="srow__name">{t('settings.blockImages')}</div>
+                  <div className="srow__desc">{t('settings.blockImagesDesc')}</div>
                 </div>
                 <Switch on={s.blockRemoteImages !== false} onChange={() => update('blockRemoteImages', !s.blockRemoteImages)} />
               </div>
               <div className="srow">
                 <div className="srow__txt">
-                  <div className="srow__name">Notifiche nuovi messaggi</div>
-                  <div className="srow__desc">Mostra notifiche Windows per la nuova posta</div>
+                  <div className="srow__name">{t('settings.notificationsEnabled')}</div>
+                  <div className="srow__desc">{t('settings.notificationsDesc')}</div>
                 </div>
                 <Switch on={s.notificationsEnabled !== false} onChange={() => update('notificationsEnabled', !s.notificationsEnabled)} />
               </div>
@@ -202,51 +204,51 @@ export default function Settings() {
 
           {/* Dati e cache */}
           <div className="sset">
-            <div className="sset__label">Dati e cache</div>
+            <div className="sset__label">{t('settings.dataAndCache')}</div>
             <div className="sset__card">
               {dbPath && (
                 <div className="srow">
                   <div className="srow__txt">
-                    <div className="srow__name">Posizione database</div>
+                    <div className="srow__name">{t('settings.dbLocation')}</div>
                     <div className="srow__desc" style={{ wordBreak: 'break-all', userSelect: 'text' }}>{dbPath}</div>
                   </div>
-                  <button className="icon-btn" type="button" onClick={() => window.api.store.openDbFolder?.()} title="Apri cartella" style={{ flexShrink: 0 }}>
+                  <button className="icon-btn" type="button" onClick={() => window.api.store.openDbFolder?.()} title={t('settings.openFolder')} style={{ flexShrink: 0 }}>
                     <IconFolderOpen size={15} />
                   </button>
                 </div>
               )}
               <div className="srow">
                 <div className="srow__txt">
-                  <div className="srow__name">Svuota cache messaggi</div>
-                  <div className="srow__desc">Elimina i corpi delle email scaricati localmente</div>
+                  <div className="srow__name">{t('settings.clearBodyCache')}</div>
+                  <div className="srow__desc">{t('settings.clearBodyCacheDesc')}</div>
                 </div>
                 <ClearBtn loading={clearingCache} done={cacheCleared} onClick={handleClearCache} />
               </div>
               <div className="srow">
                 <div className="srow__txt">
-                  <div className="srow__name">Svuota cache cartelle</div>
-                  <div className="srow__desc">Ricarica l'elenco cartelle dall'IMAP</div>
+                  <div className="srow__name">{t('settings.clearFolderCache')}</div>
+                  <div className="srow__desc">{t('settings.clearFolderCacheDesc')}</div>
                 </div>
                 <ClearBtn loading={clearingFolders} done={foldersCleared} onClick={handleClearFolderCache} />
               </div>
               <div className="srow">
                 <div className="srow__txt">
-                  <div className="srow__name">Svuota contatti</div>
-                  <div className="srow__desc">Rimuove la rubrica sincronizzata</div>
+                  <div className="srow__name">{t('settings.clearContacts')}</div>
+                  <div className="srow__desc">{t('settings.clearContactsDesc')}</div>
                 </div>
                 <ClearBtn loading={clearingContacts} done={contactsCleared} onClick={handleClearContacts} />
               </div>
               <div className="srow">
                 <div className="srow__txt">
-                  <div className="srow__name">Svuota calendario</div>
-                  <div className="srow__desc">Rimuove gli eventi sincronizzati</div>
+                  <div className="srow__name">{t('settings.clearCalendar')}</div>
+                  <div className="srow__desc">{t('settings.clearCalendarDesc')}</div>
                 </div>
                 <ClearBtn loading={clearingCalendar} done={calendarCleared} onClick={handleClearCalendar} />
               </div>
               <div className="srow">
                 <div className="srow__txt">
-                  <div className="srow__name" style={{ color: 'var(--color-error)' }}>Ripristina tutti i dati</div>
-                  <div className="srow__desc">{confirmReset ? 'Clicca di nuovo per confermare — operazione irreversibile' : 'Cancella tutti i dati locali e disconnette l\'account'}</div>
+                  <div className="srow__name" style={{ color: 'var(--color-error)' }}>{t('settings.resetData')}</div>
+                  <div className="srow__desc">{confirmReset ? t('settings.confirmReset') : t('settings.resetDataDesc')}</div>
                 </div>
                 <button
                   className="icon-btn"
@@ -266,7 +268,7 @@ export default function Settings() {
 
           {/* Account */}
           <div className="sset">
-            <div className="sset__label">Account</div>
+            <div className="sset__label">{t('settings.account')}</div>
             <div className="sset__card">
               <div className="srow">
                 <div
@@ -279,14 +281,14 @@ export default function Settings() {
                   <div className="srow__name">{email}</div>
                 </div>
                 <button className="act" onClick={signOut} type="button">
-                  <IconSignOut size={15} /> Esci
+                  <IconSignOut size={15} /> {t('settings.signOut')}
                 </button>
               </div>
               <div className="srow">
                 <span style={{ color: 'var(--ink-3)', flexShrink: 0 }}><IconGlobe size={17} /></span>
                 <div className="srow__txt">
-                  <div className="srow__name">Lingua</div>
-                  <div className="srow__desc">Lingua dell'interfaccia</div>
+                  <div className="srow__name">{t('settings.language')}</div>
+                  <div className="srow__desc">{t('settings.languageLabel')}</div>
                 </div>
                 <select
                   value={s.language || 'it-IT'}

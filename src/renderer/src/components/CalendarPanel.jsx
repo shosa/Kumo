@@ -200,7 +200,7 @@ export default function CalendarPanel() {
             )}
             {selectedEvent.attendees?.length > 0 && (
               <div className="evd__attendees">
-                <div className="cfield__label" style={{ marginBottom: 8 }}>Partecipanti</div>
+                <div className="cfield__label" style={{ marginBottom: 8 }}>{t('calendar.attendees')}</div>
                 {selectedEvent.attendees.map((a, i) => (
                   <div key={i} className="evd__att">
                     <div className="evd__att-av" style={{ background: avatarColor(a.name || a.email || a) }}>
@@ -215,7 +215,7 @@ export default function CalendarPanel() {
         ) : (
           <div className="cal__detail-empty">
             <IconCalendar size={48} />
-            <span>Seleziona un evento</span>
+            <span>{t('calendar.selectEvent')}</span>
           </div>
         )}
       </div>

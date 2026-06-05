@@ -439,8 +439,8 @@ export default function ReadingPane() {
           <div className="reader__empty-mark">
             <IconEnvelope size={30} />
           </div>
-          <h3>Seleziona un messaggio</h3>
-          <p>Scegli un'email dall'elenco per leggerla qui. Usa ↑ ↓ per navigare.</p>
+          <h3>{t('reading.noMessage')}</h3>
+          <p>{t('reading.noMessageDesc')} {t('reading.navigate')}</p>
         </div>
       </div>
     )
@@ -531,7 +531,7 @@ export default function ReadingPane() {
 
       {/* Header */}
       <div className="reader__head fadein">
-        <div className="reader__subject">{msg.subject || '(senza oggetto)'}</div>
+        <div className="reader__subject">{msg.subject || t('reading.noSubject')}</div>
         <div className="reader__metarow">
           <div className="reader__sender-av" style={{ background: getAvatarColor(senderName) }}>
             {getInitials(senderName, senderEmail)}
@@ -554,28 +554,28 @@ export default function ReadingPane() {
       {/* Action toolbar */}
       <div className="reader__bar">
         <button className="act act--primary" onClick={handleReply}>
-          <IconReply size={15} /> Rispondi <kbd>R</kbd>
+          <IconReply size={15} /> {t('action.reply')} <kbd>R</kbd>
         </button>
         <button className="act" onClick={handleReplyAll}>
-          <IconReplyAll size={15} /> Tutti
+          <IconReplyAll size={15} /> {t('action.all')}
         </button>
         <button className="act" onClick={handleForward}>
-          <IconForward size={15} /> Inoltra
+          <IconForward size={15} /> {t('action.forward')}
         </button>
         <div className="reader__bar-sep" />
-        <button className={`icon-btn${isStarred ? ' on' : ''}`} title="Stella" onClick={handleToggleStar}>
+        <button className={`icon-btn${isStarred ? ' on' : ''}`} title={isStarred ? t('action.unstar') : t('action.star')} onClick={handleToggleStar}>
           <IconStar size={17} fill={isStarred ? 'currentColor' : 'none'} />
         </button>
-        <button className="icon-btn" title={isRead ? 'Segna non letta' : 'Segna letta'} onClick={handleToggleRead}>
+        <button className="icon-btn" title={isRead ? t('action.markUnread') : t('action.markRead')} onClick={handleToggleRead}>
           <IconMarkRead size={17} />
         </button>
-        <button className="icon-btn" title="Spam" onClick={handleMarkJunk}>
+        <button className="icon-btn" title={t('action.markJunk')} onClick={handleMarkJunk}>
           <IconNoSymbol size={17} />
         </button>
-        <button className="icon-btn" title="Archivia" onClick={handleArchive}>
+        <button className="icon-btn" title={t('action.archive')} onClick={handleArchive}>
           <IconArchive size={17} />
         </button>
-        <button className="icon-btn" title="Elimina" onClick={handleDelete}>
+        <button className="icon-btn" title={t('action.delete')} onClick={handleDelete}>
           <IconTrash size={17} />
         </button>
       </div>
@@ -583,8 +583,8 @@ export default function ReadingPane() {
       {/* Remote images banner */}
       {hasRemoteImages && imagesBlocked && !imagesLoadedByUser && (
         <div className="banner">
-          <span>Immagini remote bloccate per la tua privacy</span>
-          <button onClick={handleLoadImages}>Carica immagini</button>
+          <span>{t('reading.imagesBlocked')}</span>
+          <button onClick={handleLoadImages}>{t('action.loadImages')}</button>
         </div>
       )}
 
