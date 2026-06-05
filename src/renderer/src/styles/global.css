@@ -16,8 +16,8 @@ html, body, #root {
 body {
   font-family: var(--font-sans);
   font-size: var(--text-base);
-  color: var(--text-primary);
-  background: var(--bg-base);
+  color: var(--ink);
+  background: var(--bg);
   line-height: 1.5;
   user-select: none;
 }
@@ -29,18 +29,55 @@ body {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
-  background: var(--bg-base);
+  background: var(--bg);
+  color: var(--ink);
 }
 
 .app-layout {
-  display: flex;
   flex: 1;
-  overflow: hidden;
-  /* Subtle animated gradient backdrop */
+  display: flex;
+  min-height: 0;
   background:
-    radial-gradient(ellipse 80% 60% at 20% 40%, rgba(0,113,227,0.08) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 80% at 80% 70%, rgba(94,94,188,0.07) 0%, transparent 55%),
-    var(--bg-base);
+    radial-gradient(90% 70% at 0% 0%, var(--accent-softer) 0%, transparent 55%),
+    var(--bg-tint);
+}
+
+.app-layout__sidebar {
+  flex-shrink: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-layout__msglist {
+  flex-shrink: 0;
+  min-height: 0;
+}
+
+.app-layout__reading {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.app-layout__full {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.resize-handle--vertical {
+  width: 1px;
+  background: var(--line);
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background .15s;
+}
+
+.resize-handle--vertical:hover {
+  background: var(--accent-soft);
+  width: 2px;
 }
 
 /* ── Title bar ───────────────────────────────────────────────────────────── */

@@ -5,7 +5,7 @@ import { useTranslation } from '../i18n/index'
 import {
   IconInbox, IconSent, IconDrafts, IconTrash, IconJunk,
   IconArchive, IconFolder, IconCompose, IconSettings, IconRefresh,
-  IconSignOut, IconMarkRead, IconNoSymbol, IconMail, IconContacts, IconCalendar
+  IconSignOut, IconMarkRead, IconNoSymbol, IconEdit
 } from './Icons'
 
 const FOLDER_ICON_MAP = {
@@ -249,35 +249,35 @@ export default function Sidebar() {
   const sorted = [...state.folders.list].sort((a, b) => folderSortKey(a) - folderSortKey(b))
   const systemFolders = sorted.filter(f => f.special_use)
   const customFolders = sorted.filter(f => !f.special_use)
-  const initials = state.auth.email ? state.auth.email.slice(0, 2).toUpperCase() : '?'
 
-  const currentView = state.view || 'mail'
   const isGlobalSyncing = state.sync?.operationsInProgress > 0
 
   return (
-    <div className="sidebar" onClick={() => { setFolderMenu(null); setAvatarMenu(false) }}>
-      <div className="sidebar__folders">
-        {currentView !== 'mail' ? (
-          <>
-            <div className="sidebar__section-label">iCloud</div>
-            <div className="folder-item active" style={{ cursor: 'default' }}>
-              <span className="folder-item__icon">
-                {currentView === 'contacts' ? <IconContacts size={16} /> : <IconCalendar size={16} />}
-              </span>
-              <span className="folder-item__name">Principale</span>
-            </div>
-          </>
-        ) : null}
+    <div className="sidebar" onClick={() => { setFolderMenu(null) }}>
+      {/* Header: account info */}
+      <div className="sidebar__head">
+        <div className="sidebar__acct-label">iCloud</div>
+        <div className="sidebar__acct-email">{state.auth.email || ''}</div>
+      </div>
 
-        {currentView === 'mail' && state.folders.loading && state.folders.list.length === 0 && (
-          <div style={{ padding: 'var(--sp-4)', textAlign: 'center' }}>
+      {/* Compose button */}
+      <button className="compose-btn" onClick={openCompose}>
+        <IconEdit size={15} />
+        Nuovo messaggio
+        <kbd>C</kbd>
+      </button>
+
+      {/* Folder list */}
+      <div className="sidebar__scroll scroll">
+        {state.folders.loading && state.folders.list.length === 0 && (
+          <div style={{ padding: '16px', textAlign: 'center' }}>
             <div className="spinner" style={{ margin: '0 auto' }} />
           </div>
         )}
 
-        {currentView === 'mail' && systemFolders.length > 0 && (
+        {systemFolders.length > 0 && (
           <>
-            <div className="sidebar__section-label">{t('sidebar.mailboxes')}</div>
+            <div className="sidebar__group-label">{t('sidebar.mailboxes')}</div>
             {systemFolders.map(folder => (
               <FolderItem
                 key={folder.path}
@@ -295,9 +295,9 @@ export default function Sidebar() {
           </>
         )}
 
-        {currentView === 'mail' && customFolders.length > 0 && (
+        {customFolders.length > 0 && (
           <>
-            <div className="sidebar__section-label" style={{ marginTop: 'var(--sp-3)' }}>
+            <div className="sidebar__group-label" style={{ marginTop: '8px' }}>
               {t('sidebar.folders')}
             </div>
             {customFolders.map(folder => (
@@ -318,85 +318,29 @@ export default function Sidebar() {
         )}
       </div>
 
-      <div className="sidebar__nav-tabs">
-        <span
-          className="sidebar__nav-indicator"
-          style={{ transform: `translateX(calc(${({ mail: 0, contacts: 1, calendar: 2 }[state.view || 'mail'] ?? 0)} * (100% + 1px)))` }}
-        />
-        <button
-          className={`sidebar__nav-tab${state.view === 'mail' || !state.view ? ' active' : ''}`}
-          onClick={() => dispatch({ type: 'SET_VIEW', payload: 'mail' })}
-          title={t('nav.mail')}
-          aria-label={t('nav.mail')}
-        >
-          <IconMail size={20} />
-        </button>
-        <button
-          className={`sidebar__nav-tab${state.view === 'contacts' ? ' active' : ''}`}
-          onClick={() => dispatch({ type: 'SET_VIEW', payload: 'contacts' })}
-          title={t('nav.contacts')}
-          aria-label={t('nav.contacts')}
-        >
-          <IconContacts size={20} />
-        </button>
-        <button
-          className={`sidebar__nav-tab${state.view === 'calendar' ? ' active' : ''}`}
-          onClick={() => dispatch({ type: 'SET_VIEW', payload: 'calendar' })}
-          title={t('nav.calendar')}
-          aria-label={t('nav.calendar')}
-        >
-          <IconCalendar size={20} />
-        </button>
-      </div>
-
-      <div className="sidebar__loading-bar">
-        <div className="sidebar__loading-bar__label">
-          {state.loading.label || ''}
+      {/* Footer: storage + refresh */}
+      <div className="sidebar__foot">
+        <div className="storage">
+          <div className="storage__bar">
+            <div className="storage__fill" style={{ width: '34%' }} />
+          </div>
+          <div className="storage__label">Spazio iCloud</div>
         </div>
-        <div className="sidebar__loading-bar__track">
-          {(state.folders.loading || state.loading.active) && (
-            <div className="sidebar__loading-bar__fill" />
-          )}
-        </div>
-      </div>
-
-      <div className="sidebar__footer">
-        <div
-          ref={avatarRef}
-          className={`sidebar__footer-avatar${avatarMenu ? ' active' : ''}`}
-          onClick={e => { e.stopPropagation(); setAvatarMenu(v => !v) }}
-          title={state.auth.email}
-          role="button"
-          tabIndex={0}
-          onKeyDown={e => e.key === 'Enter' && setAvatarMenu(v => !v)}
-        >{initials}</div>
-        <span style={{ flex: 1 }} />
         <button
-          className="btn btn--icon"
+          className="icon-btn"
+          title={t('sidebar.refresh')}
           onClick={async () => {
             if (isSyncing) return
             setIsSyncing(true)
             try { await loadFolders(); await syncSelectedFolder() }
             finally { setIsSyncing(false) }
           }}
-          title={t('sidebar.refresh')}
         >
           <IconRefresh size={16} className={isSyncing ? 'spin' : ''} />
         </button>
       </div>
 
-      {avatarMenu && createPortal(
-        <AvatarMenu
-          anchorRect={avatarRef.current?.getBoundingClientRect()}
-          email={state.auth.email}
-          onClose={() => setAvatarMenu(false)}
-          onSettings={() => { openSettings(); setAvatarMenu(false) }}
-          onSignOut={() => { signOut(); setAvatarMenu(false) }}
-          t={t}
-        />,
-        document.querySelector('.app-root') || document.body
-      )}
-
+      {/* Context menus via portals */}
       {folderMenu && createPortal(
         <FolderMenu
           x={folderMenu.x}
@@ -416,10 +360,11 @@ function FolderItem({ folder, selected, dragOver, onClick, onContextMenu, onDrag
   const IconComp = FOLDER_ICON_MAP[folder.special_use] || IconFolder
   const labelKey = FOLDER_LABEL_KEY[folder.special_use]
   const name = labelKey ? t(labelKey) : (folder.name || folder.path.split('/').pop())
+  const isInbox = folder.special_use === '\\Inbox'
 
   return (
     <div
-      className={`folder-item${selected ? ' active' : ''}${dragOver ? ' drag-over' : ''}`}
+      className={`folder${selected ? ' active' : ''}${dragOver ? ' drag-over' : ''}`}
       onClick={onClick}
       onContextMenu={onContextMenu}
       onDragOver={onDragOver}
@@ -428,12 +373,12 @@ function FolderItem({ folder, selected, dragOver, onClick, onContextMenu, onDrag
       role="button"
       tabIndex={0}
       onKeyDown={e => e.key === 'Enter' && onClick()}
-      aria-label={`${name}${folder.unread_count > 0 ? `, ${folder.unread_count} unread` : ''}`}
+      aria-label={`${name}${folder.unread_count > 0 ? `, ${folder.unread_count} non letti` : ''}`}
     >
-      <span className="folder-item__icon"><IconComp size={16} /></span>
-      <span className="folder-item__name">{name}</span>
+      <span className="folder__icon"><IconComp size={17} /></span>
+      <span className="folder__name">{name}</span>
       {folder.unread_count > 0 && (
-        <span className="folder-item__badge">
+        <span className={`folder__count${isInbox ? ' badge' : ''}`}>
           {folder.unread_count > 99 ? '99+' : folder.unread_count}
         </span>
       )}
