@@ -36,7 +36,11 @@
       "PowerShell(cd \"C:/Users/StefanoSolidoro/Desktop/test\"; Get-ChildItem resources/ | Select-Object Name, Length; Add-Type -AssemblyName System.Drawing; $ico = New-Object System.Drawing.Icon\\(\"resources/icon.ico\"\\); $ico.Width; $ico.Height)",
       "PowerShell(Add-Type -AssemblyName System.Drawing; $ico = New-Object System.Drawing.Icon\\(\"C:\\\\Users\\\\StefanoSolidoro\\\\Desktop\\\\test\\\\resources\\\\icon.ico\"\\); Write-Host \"Width=$\\($ico.Width\\) Height=$\\($ico.Height\\) Size=$\\(\\(Get-Item 'C:\\\\Users\\\\StefanoSolidoro\\\\Desktop\\\\test\\\\resources\\\\icon.ico'\\).Length\\)\"; $ico.Dispose\\(\\))",
       "Bash(git checkout *)",
-      "Bash(git merge redesign/liquid-glass --no-ff -m ' *)"
+      "Bash(git merge redesign/liquid-glass --no-ff -m ' *)",
+      "Bash(git tag *)",
+      "Bash(npm run *)",
+      "Bash(git branch *)",
+      "Bash(curl *)"
     ]
   }
 }
