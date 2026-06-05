@@ -151,7 +151,7 @@ export default function MessageList() {
   function selectSingle(msg) {
     setSelectedKeys(new Set())
     dispatch({ type: 'SELECT_MESSAGE', payload: msg })
-    if (!msg.flags?.includes('\\Seen')) {
+    if (!msg.flags?.includes('\\Seen') && msg.folder) {
       window.api.imap.markRead(msg.folder, msg.uid, true)
       dispatch({
         type: 'UPDATE_MESSAGE_FLAGS',
@@ -226,6 +226,7 @@ export default function MessageList() {
     const folder0 = messages[0].folder
     const uids = messages.map(m => m.uid)
     const msg = messages[0]
+    if (!folder0 && ['markRead','markUnread','star','unstar','move','junk','delete'].includes(type)) return
 
     switch (type) {
       case 'reply':

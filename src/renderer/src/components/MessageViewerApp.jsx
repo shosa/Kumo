@@ -374,8 +374,13 @@ export default function MessageViewerApp({ message }) {
 
   const theme = settings.theme || 'light'
 
+  // Apply data-theme on documentElement (new theming mechanism)
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+  }, [theme])
+
   return (
-    <div className={`app-root theme-${theme} viewer-window`}>
+    <div className="viewer-window">
       {/* Drag region for native titlebar — right:150 leaves room for Win11 min/max/close */}
       <div style={{ position: 'fixed', top: 0, left: 0, right: 150, height: 32, WebkitAppRegion: 'drag', zIndex: 9999, pointerEvents: 'none' }} />
       {/* Viewer header — sits below native titlebar overlay (32px) */}
