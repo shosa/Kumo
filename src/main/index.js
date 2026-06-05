@@ -125,7 +125,7 @@ function createWindow() {
       webviewTag: true,
       sandbox: false
     },
-    show: false,
+    show: true,
     icon: getResourcePath('icon.ico')
   })
 
@@ -136,11 +136,6 @@ function createWindow() {
   }
 
   _attachExternalLinkHandler(mainWindow)
-
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show()
-    mainWindow.focus()
-  })
 
   mainWindow.on('close', (e) => {
     if (tray) {
