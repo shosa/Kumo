@@ -685,11 +685,40 @@ export function toggleMessageFlag(folder, uid, flag, add) {
   scheduleSave()
 }
 
+export function getSyncQueueCount() {
+  const d = getDB()
+  const stmt = d.prepare(`SELECT COUNT(*) as cnt FROM sync_queue`)
+  let count = 0
+  if (stmt.step()) count = stmt.getAsObject().cnt || 0
+  stmt.free()
+  return count
+}
+
+export function recalcFolderUnread(folder) {
+  const d = getDB()
+  const stmt = d.prepare(
+    `SELECT COUNT(*) as cnt FROM messages WHERE folder = ? AND (flags IS NULL OR flags NOT LIKE '%\\\\Seen%')`
+  )
+  stmt.bind([folder])
+  let unread = 0
+  if (stmt.step()) unread = stmt.getAsObject().cnt || 0
+  stmt.free()
+  d.run(`UPDATE folders SET unread_count = ? WHERE path = ?`, [unread, folder])
+  scheduleSave()
+}
+
 export function removeMessages(uids, folder) {
   if (!uids?.length) return
   const d = getDB()
   const placeholders = uids.map(() => '?').join(',')
   d.run(`DELETE FROM messages WHERE folder = ? AND uid IN (${placeholders})`, [folder, ...uids])
+  recalcFolderUnread(folder)
+  scheduleSave()
+}
+
+export function clearMessages() {
+  const d = getDB()
+  d.run(`DELETE FROM messages`)
   scheduleSave()
 }
 

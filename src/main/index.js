@@ -2,13 +2,13 @@ import { app, BrowserWindow, ipcMain, Tray, Menu, Notification, nativeImage, she
 import { join, dirname, resolve, sep } from 'path'
 import {
   initDB, closeDB, searchMessages, getSettings, saveSetting,
-  getFolders, clearBodyCache, clearFolderCache, getDbPath, resetAllData,
+  getFolders, clearBodyCache, clearFolderCache, clearMessages, getDbPath, resetAllData,
   getDrafts, upsertDraft, deleteDraft,
   getSyncState,
   getAttachmentsMeta, markAttachmentDownloaded,
   upsertContact, getContacts, searchContacts, deleteContacts,
   upsertEvent, getEvents, deleteEvents,
-  removeMessages, toggleMessageFlag, persistDBImmediate
+  removeMessages, toggleMessageFlag, persistDBImmediate, recalcFolderUnread, getSyncQueueCount
 } from './store/db.js'
 import { saveCredentials, getCredentials, deleteCredentials, listStoredEmails } from './auth/index.js'
 import { ImapClient } from './imap/client.js'
@@ -19,7 +19,7 @@ import { logContact, logErr } from './logger.js'
 import { initUpdater } from './updater.js'
 import { replayPendingSyncOperations } from './startupSync.js'
 import { enqueueSyncOperation, updateMessageOptimistic, rollbackOptimisticUpdate } from './syncQueue.js'
-import { startSyncRunner, stopSyncRunner } from './syncRunner.js'
+import { startSyncRunner, stopSyncRunner, flushSyncQueue } from './syncRunner.js'
 
 // In dev mode, isolate data from the production install
 if (process.env.ELECTRON_RENDERER_URL) {
@@ -43,13 +43,13 @@ function getSubWindowTheme() {
   try { theme = getSettings().theme || 'light' } catch { /* use default */ }
   if (theme === 'dark') {
     return {
-      backgroundColor: '#1c1c1e',
-      titleBarOverlay: { color: '#1c1c1e', symbolColor: '#8e8e93', height: 32 }
+      backgroundColor: '#0e1014',
+      titleBarOverlay: { color: '#0e1014', symbolColor: '#6f7686', height: 32 }
     }
   }
   return {
-    backgroundColor: '#f5f5f7',
-    titleBarOverlay: { color: '#f5f5f7', symbolColor: '#6e6e73', height: 32 }
+    backgroundColor: '#eceef3',
+    titleBarOverlay: { color: '#eceef3', symbolColor: '#8a909d', height: 32 }
   }
 }
 
@@ -114,8 +114,8 @@ function createWindow() {
     backgroundColor: '#f5f5f7',
     titleBarStyle: 'hidden',
     titleBarOverlay: {
-      color: 'rgba(240,240,248,0)',
-      symbolColor: '#333333',
+      color: '#eceef3',
+      symbolColor: '#8a909d',
       height: 32
     },
     webPreferences: {
@@ -216,10 +216,7 @@ function updateTrayMenu() {
     { type: 'separator' },
     {
       label: s.quit,
-      click: () => {
-        tray = null
-        app.quit()
-      }
+      click: () => confirmAndQuit()
     }
   ])
   tray.setContextMenu(contextMenu)
@@ -446,6 +443,7 @@ ipcMain.handle('imap:mark-read', async (_e, folder, uid, read, email) => {
   try {
     const flags = read ? ['\\Seen'] : []
     updateMessageOptimistic(folder, uid, { flags }, { immediate: true })
+    recalcFolderUnread(folder)
     enqueueSyncOperation('setFlags', 'message',
       { flag: '\\Seen', add: read },
       { accountEmail: email, folder, uid }
@@ -570,6 +568,7 @@ ipcMain.handle('imap:empty-folder', async (_e, folder, email) => {
 ipcMain.handle('imap:bulk-set-flag', async (_e, folder, uids, flag, add, email) => {
   try {
     for (const uid of uids) toggleMessageFlag(folder, uid, flag, add)
+    if (flag === '\\Seen') recalcFolderUnread(folder)
     persistDBImmediate()
     enqueueSyncOperation('bulkSetFlags', 'message',
       { uids, flag, add },
@@ -690,6 +689,15 @@ ipcMain.handle('store:clear-folder-cache', async () => {
   }
 })
 
+ipcMain.handle('store:clear-messages', async () => {
+  try {
+    clearMessages()
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
 ipcMain.handle('store:get-db-path', async () => {
   return { ok: true, path: getDbPath() }
 })
@@ -745,6 +753,11 @@ ipcMain.handle('store:read-local-file', async (_e, filePath) => {
 
 // ── Settings IPC ──────────────────────────────────────────────────────────────
 
+ipcMain.handle('store:get-pending-ops-count', () => {
+  try { return { ok: true, count: getSyncQueueCount() } }
+  catch { return { ok: true, count: 0 } }
+})
+
 ipcMain.handle('settings:get', async () => {
   try {
     const settings = getSettings()
@@ -758,6 +771,14 @@ ipcMain.handle('settings:save', async (_e, updates) => {
   try {
     for (const [key, value] of Object.entries(updates)) saveSetting(key, value)
     updateTrayMenu()
+    if ('theme' in updates && mainWindow && !mainWindow.isDestroyed()) {
+      const isDark = updates.theme === 'dark'
+      mainWindow.setTitleBarOverlay({
+        color: isDark ? '#0e1014' : '#eceef3',
+        symbolColor: isDark ? '#6f7686' : '#8a909d',
+        height: 32
+      })
+    }
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -1077,6 +1098,46 @@ ipcMain.handle('imap:get-attachment-meta', async (_e, uid, folder) => {
 })
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
+
+async function confirmAndQuit() {
+  const pending = getSyncQueueCount()
+  if (pending > 0) {
+    const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'warning',
+      buttons: ['Sincronizza e chiudi', 'Chiudi comunque', 'Annulla'],
+      defaultId: 0,
+      cancelId: 2,
+      title: 'Azioni in sospeso',
+      message: `Ci sono ${pending} ${pending === 1 ? 'azione non sincronizzata' : 'azioni non sincronizzate'}.`,
+      detail: 'Vuoi sincronizzarle prima di chiudere?'
+    })
+    if (response === 0) {
+      await flushSyncQueue(imapClients).catch(() => {})
+      tray = null
+      app.quit()
+    } else if (response === 1) {
+      tray = null
+      app.quit()
+    }
+  } else {
+    tray = null
+    app.quit()
+  }
+}
+
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      if (!mainWindow.isVisible()) mainWindow.show()
+      mainWindow.focus()
+    }
+  })
+}
 
 const KUMO_MIME = {
   pdf: 'application/pdf',

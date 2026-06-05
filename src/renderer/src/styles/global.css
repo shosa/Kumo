@@ -16,8 +16,8 @@ html, body, #root {
 body {
   font-family: var(--font-sans);
   font-size: var(--text-base);
-  color: var(--text-primary);
-  background: var(--bg-base);
+  color: var(--ink);
+  background: var(--bg);
   line-height: 1.5;
   user-select: none;
 }
@@ -29,18 +29,59 @@ body {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
-  background: var(--bg-base);
+  background: var(--bg);
+  color: var(--ink);
 }
 
 .app-layout {
-  display: flex;
   flex: 1;
-  overflow: hidden;
-  /* Subtle animated gradient backdrop */
+  display: flex;
+  min-height: 0;
   background:
-    radial-gradient(ellipse 80% 60% at 20% 40%, rgba(0,113,227,0.08) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 80% at 80% 70%, rgba(94,94,188,0.07) 0%, transparent 55%),
-    var(--bg-base);
+    radial-gradient(90% 70% at 0% 0%, var(--accent-softer) 0%, transparent 55%),
+    var(--bg-tint);
+}
+
+.app-layout__sidebar {
+  flex-shrink: 0;
+  width: var(--sidebar-width);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-layout__msglist {
+  flex-shrink: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.app-layout__reading {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-layout__full {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.resize-handle--vertical {
+  width: 1px;
+  background: var(--line);
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background .15s;
+}
+
+.resize-handle--vertical:hover {
+  background: var(--accent-soft);
+  width: 2px;
 }
 
 /* ── Title bar ───────────────────────────────────────────────────────────── */
@@ -182,4 +223,32 @@ a:hover { text-decoration: underline; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ── Prototype additions ──────────────────────────────────────────────────── */
+kbd {
+  font-family: var(--mono);
+  font-size: 10px; line-height: 1; padding: 3px 5px 2px;
+  border-radius: 5px; background: var(--surface-3);
+  border: 1px solid var(--line); color: var(--ink-3);
+  box-shadow: 0 1px 0 var(--line); min-width: 16px;
+  text-align: center; display: inline-block;
+}
+
+.scroll { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.scroll::-webkit-scrollbar { width: 9px; height: 9px; }
+.scroll::-webkit-scrollbar-thumb {
+  background: var(--line-strong); border-radius: 99px;
+  border: 3px solid transparent; background-clip: padding-box;
+}
+.scroll::-webkit-scrollbar-thumb:hover { background: var(--ink-4); background-clip: padding-box; }
+
+::selection { background: var(--accent-soft); }
+
+@keyframes pop { from { transform: scale(0.97) translateY(8px); } to { transform: none; } }
+@keyframes contentrise { from { transform: translateY(8px); } to { transform: none; } }
+.fadein { animation: contentrise .3s var(--ease); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition-duration: .01ms !important; }
 }

@@ -70,3 +70,8 @@ export const IconResize     = p => <SvgIcon {...p} d={["M15 3h6v6", "M9 21H3v-6"
 export const IconCheck      = p => <SvgIcon {...p} d="M5 13l4 4L19 7" />
 export const IconFolderOpen = p => <SvgIcon {...p} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
 export const IconLink       = p => <SvgIcon {...p} d={["M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71", "M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"]} />
+export const IconBuilding     = p => <SvgIcon {...p} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+export const IconGlobe        = p => <SvgIcon {...p} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+export const IconChevronLeft  = p => <SvgIcon {...p} d="M15 19l-7-7 7-7" />
+export const IconEdit         = p => <SvgIcon {...p} d={["M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5", "M17.586 3.586a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"]} />
+export const IconArrowDown    = p => <SvgIcon {...p} d="M19 9l-7 7-7-7" />

@@ -68,7 +68,10 @@ function LanguagePicker({ value, onChange }) {
         <div style={{
           position: 'absolute', bottom: 'calc(100% + 8px)', left: '50%',
           transform: 'translateX(-50%)',
-          background: 'var(--bg-layer1)',
+          zIndex: 999,
+        }}>
+        <div style={{
+          background: 'var(--surface)',
           border: '1px solid var(--glass-border-light)',
           borderRadius: 'var(--radius-lg)',
           boxShadow: '0 16px 48px rgba(0,0,0,0.4)',
@@ -77,9 +80,8 @@ function LanguagePicker({ value, onChange }) {
           display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)',
           gap: '4px',
           minWidth: 260,
-          animation: 'scaleIn 120ms var(--ease-spring)',
+          animation: 'scaleIn 180ms var(--ease-spring)',
           transformOrigin: 'bottom center',
-          zIndex: 999,
         }}>
           {SETUP_LANGUAGES.map(l => {
             const active = l.code === value
@@ -109,6 +111,7 @@ function LanguagePicker({ value, onChange }) {
               </button>
             )
           })}
+        </div>
         </div>
       )}
     </div>

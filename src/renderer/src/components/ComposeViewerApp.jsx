@@ -384,8 +384,12 @@ export default function ComposeViewerApp({ composeData }) {
 
   const theme = settings.theme || 'light'
 
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+  }, [theme])
+
   return (
-    <div className={`app-root theme-${theme} viewer-window`} onClick={() => setContextMenu(null)}>
+    <div className="viewer-window" onClick={() => setContextMenu(null)}>
       {/* Drag region with title for the native titlebar overlay area */}
       <div style={{ position: 'fixed', top: 0, left: 0, right: 150, height: 32, WebkitAppRegion: 'drag', zIndex: 9999, display: 'flex', alignItems: 'center', paddingLeft: 16 }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', userSelect: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.85 }}>

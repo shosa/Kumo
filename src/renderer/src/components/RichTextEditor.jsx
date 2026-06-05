@@ -66,6 +66,13 @@ const RichTextEditor = forwardRef(function RichTextEditor(
 
   useEffect(() => {
     const quill = editorRef.current
+    if (quill && placeholder != null) {
+      quill.root.dataset.placeholder = placeholder
+    }
+  }, [placeholder])
+
+  useEffect(() => {
+    const quill = editorRef.current
     const nextValue = value || ''
     if (!quill || nextValue === valueRef.current) return
 

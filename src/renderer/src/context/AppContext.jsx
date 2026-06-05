@@ -39,7 +39,10 @@ const initialState = {
     syncInterval: 5,
     signature: '',
     notifyFolders: ['INBOX'],
-    language: 'en-US'
+    language: 'en-US',
+    accentColor: '#0071e3',
+    showAvatars: true,
+    showPreview: true
   },
   view: 'mail',        // 'mail' | 'contacts' | 'calendar'
   contacts: {
