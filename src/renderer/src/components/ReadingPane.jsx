@@ -350,13 +350,13 @@ export default function ReadingPane() {
   }
 
   function handleDelete() {
-    if (!msg) return
+    if (!msg || !msg.folder) return
     dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
     window.api.imap.deleteMessage(msg.folder, msg.uid, false)
   }
 
   function handleArchive() {
-    if (!msg) return
+    if (!msg || !msg.folder) return
     dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
     window.api.imap.archiveMessage?.(msg.folder, msg.uid)
   }
@@ -368,7 +368,7 @@ export default function ReadingPane() {
       ? msg.flags.filter(f => f !== '\\Flagged')
       : [...(msg.flags || []), '\\Flagged']
     dispatch({ type: 'UPDATE_MESSAGE_FLAGS', payload: { uid: msg.uid, folder: msg.folder, flags: newFlags } })
-    window.api.imap.starMessage(msg.folder, msg.uid, !isStarred)
+    if (msg.folder) window.api.imap.starMessage(msg.folder, msg.uid, !isStarred)
   }
 
   function handleToggleRead() {
@@ -378,11 +378,11 @@ export default function ReadingPane() {
       ? msg.flags.filter(f => f !== '\\Seen')
       : [...(msg.flags || []), '\\Seen']
     dispatch({ type: 'UPDATE_MESSAGE_FLAGS', payload: { uid: msg.uid, folder: msg.folder, flags: newFlags } })
-    window.api.imap.markRead(msg.folder, msg.uid, !isRead)
+    if (msg.folder) window.api.imap.markRead(msg.folder, msg.uid, !isRead)
   }
 
   function handleMarkJunk() {
-    if (!msg) return
+    if (!msg || !msg.folder) return
     dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
     window.api.imap.markJunk(msg.folder, msg.uid, true)
   }

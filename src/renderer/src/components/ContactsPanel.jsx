@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
-import { IconSearch, IconContacts, IconMail, IconPhone, IconBuilding, IconPin } from './Icons'
+import { IconSearch, IconContacts, IconMail, IconPhone, IconBuilding, IconPin, IconSync } from './Icons'
 
 const AVATAR_COLORS = ['#0071e3','#5e5ebc','#bf5af2','#ff6b35','#30a46c','#e0820b','#e5484d','#0e9bd6']
 
@@ -29,6 +29,24 @@ export default function ContactsPanel() {
   const dispatch = useAppDispatch()
   const t = useTranslation()
   const [searchQuery, setSearchQuery] = useState('')
+  const [syncing, setSyncing] = useState(false)
+
+  async function handleSync() {
+    if (syncing) return
+    setSyncing(true)
+    dispatch({ type: 'SET_CONTACTS_SYNCING', payload: true })
+    try {
+      const credRes = await window.api.auth.getCredentials()
+      if (credRes.ok && credRes.creds?.password) {
+        await window.api.contacts.sync(credRes.creds.email, credRes.creds.password)
+        const listRes = await window.api.contacts.list(credRes.creds.email)
+        if (listRes.ok) dispatch({ type: 'SET_CONTACTS', payload: listRes.contacts })
+      }
+    } finally {
+      setSyncing(false)
+      dispatch({ type: 'SET_CONTACTS_SYNCING', payload: false })
+    }
+  }
 
   const loadContacts = useCallback(async () => {
     const email = state.auth.email
@@ -83,6 +101,17 @@ export default function ContactsPanel() {
       {/* left column */}
       <div className="contacts__list">
         <div className="contacts__head">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', flex: 1 }}>{t('nav.contacts')}</span>
+            <button
+              className="icon-btn"
+              onClick={handleSync}
+              disabled={syncing}
+              title={syncing ? t('toolbar.syncing') : t('toolbar.sync')}
+            >
+              <IconSync size={16} className={syncing ? 'spin' : ''} />
+            </button>
+          </div>
           <div className="search">
             <span className="search__icon"><IconSearch size={15} /></span>
             <input

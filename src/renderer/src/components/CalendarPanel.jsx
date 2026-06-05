@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback, useState } from 'react'
 import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
-import { IconCalendar, IconClock, IconPin, IconEdit, IconChevronLeft, IconChevronRight } from './Icons'
+import { IconCalendar, IconClock, IconPin, IconEdit, IconChevronLeft, IconChevronRight, IconSync } from './Icons'
 
 const MESI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre']
 const GIORNI = ['L','M','M','G','V','S','D']
@@ -54,6 +54,26 @@ export default function CalendarPanel() {
   const t = useTranslation()
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [viewMonth, setViewMonth] = useState(() => new Date())
+  const [selectedDay, setSelectedDay] = useState(null) // Date object or null = show all upcoming
+  const [syncing, setSyncing] = useState(false)
+
+  async function handleSync() {
+    if (syncing) return
+    setSyncing(true)
+    dispatch({ type: 'SET_CALENDAR_SYNCING', payload: true })
+    try {
+      const credRes = await window.api.auth.getCredentials()
+      if (credRes.ok && credRes.creds?.password) {
+        await window.api.calendar.sync(credRes.creds.email, credRes.creds.password)
+        const now = Date.now()
+        const evRes = await window.api.calendar.events(credRes.creds.email, now - 30 * 86400000, now + 180 * 86400000)
+        if (evRes.ok) dispatch({ type: 'SET_CALENDAR_EVENTS', payload: evRes.events })
+      }
+    } finally {
+      setSyncing(false)
+      dispatch({ type: 'SET_CALENDAR_SYNCING', payload: false })
+    }
+  }
 
   const currentMonth = viewMonth.getMonth()
   const currentYear = viewMonth.getFullYear()
@@ -64,6 +84,7 @@ export default function CalendarPanel() {
   const todayYear = today.getFullYear()
 
   function prevMonth() {
+    setSelectedDay(null)
     setViewMonth(m => {
       const d = new Date(m)
       d.setDate(1)
@@ -72,6 +93,7 @@ export default function CalendarPanel() {
     })
   }
   function nextMonth() {
+    setSelectedDay(null)
     setViewMonth(m => {
       const d = new Date(m)
       d.setDate(1)
@@ -103,12 +125,21 @@ export default function CalendarPanel() {
   }, [state.auth.isAuthenticated, state.calendar.events.length, loadEvents])
 
   const now = Date.now()
-  const upcoming = (state.calendar.events || [])
-    .filter(ev => ev.end_ts >= now)
-    .sort((a, b) => a.start_ts - b.start_ts)
-    .slice(0, 100)
 
-  const eventGroups = groupEventsByDate(upcoming)
+  // Filter events: if a day is selected show only that day's events, otherwise show upcoming
+  const visibleEvents = (() => {
+    const all = (state.calendar.events || []).sort((a, b) => a.start_ts - b.start_ts)
+    if (selectedDay) {
+      const sel = new Date(currentYear, currentMonth, selectedDay)
+      return all.filter(ev => {
+        const d = new Date(ev.start_ts)
+        return d.getDate() === sel.getDate() && d.getMonth() === sel.getMonth() && d.getFullYear() === sel.getFullYear()
+      })
+    }
+    return all.filter(ev => ev.end_ts >= now).slice(0, 100)
+  })()
+
+  const eventGroups = groupEventsByDate(visibleEvents)
 
   // Collect day numbers in current month that have events
   const eventDays = new Set(
@@ -130,6 +161,14 @@ export default function CalendarPanel() {
             <button className="icon-btn" onClick={prevMonth}><IconChevronLeft size={16} /></button>
             <span className="mini__month">{MESI[currentMonth]} {currentYear}</span>
             <button className="icon-btn" onClick={nextMonth}><IconChevronRight size={16} /></button>
+            <button
+              className="icon-btn"
+              onClick={handleSync}
+              disabled={syncing}
+              title={syncing ? t('toolbar.syncing') : t('toolbar.sync')}
+            >
+              <IconSync size={16} className={syncing ? 'spin' : ''} />
+            </button>
           </div>
           <div className="mini__grid">
             {GIORNI.map((g, i) => <div key={i} className="mini__dn">{g}</div>)}
@@ -140,8 +179,11 @@ export default function CalendarPanel() {
                   className={[
                     'mini__day',
                     d === todayDate && currentMonth === todayMonth && currentYear === todayYear ? 'today' : '',
-                    eventDays.has(d) ? 'dot-day' : ''
+                    eventDays.has(d) ? 'dot-day' : '',
+                    d === selectedDay ? 'selected' : ''
                   ].filter(Boolean).join(' ')}
+                  onClick={() => setSelectedDay(prev => prev === d ? null : d)}
+                  title={eventDays.has(d) ? 'Ha eventi' : ''}
                 >{d}</div>
             )}
           </div>

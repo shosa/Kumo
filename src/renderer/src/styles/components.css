@@ -613,6 +613,8 @@
 .mini__day { aspect-ratio: 1; display: grid; place-items: center; font-size: 12px; color: var(--ink-2); border-radius: 8px; cursor: pointer; transition: background .12s; }
 .mini__day:hover { background: var(--hover); }
 .mini__day.today { background: var(--accent); color: #fff; font-weight: 650; }
+.mini__day.selected { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.mini__day.selected.today { background: var(--accent); color: #fff; }
 .mini__day.has::after { content: ""; position: absolute; }
 .mini__day.dot-day { position: relative; }
 .mini__day.dot-day::after { content: ""; position: absolute; bottom: 3px; width: 4px; height: 4px; border-radius: 99px; background: var(--accent); }

@@ -29,6 +29,7 @@ function loadWidths() {
 
 function saveWidth(key, value) {
   try { localStorage.setItem(`pane-${key}`, String(value)) } catch { /* ignore */ }
+  try { window.api.settings.save({ [`pane_${key}`]: value }) } catch { /* ignore */ }
 }
 
 function useResizeHandle(containerRef, key, min, max, onResize) {
@@ -84,10 +85,22 @@ export default function App() {
   const sidebarRef = useRef(null)
   const msglistRef = useRef(null)
 
+  // Hydrate widths from settings (loaded async) if localStorage was empty on startup
   useEffect(() => {
+    if (state.settings.pane_sidebar && !localStorage.getItem('pane-sidebar')) {
+      widths.current.sidebar = state.settings.pane_sidebar
+    }
+    if (state.settings.pane_msglist && !localStorage.getItem('pane-msglist')) {
+      widths.current.msglist = state.settings.pane_msglist
+    }
+  }, [state.settings.pane_sidebar, state.settings.pane_msglist])
+
+  // Re-apply stored widths every time the mail view mounts (conditional render unmounts on view switch)
+  useEffect(() => {
+    if (view !== 'mail') return
     if (sidebarRef.current) sidebarRef.current.style.width = `${widths.current.sidebar}px`
     if (msglistRef.current) msglistRef.current.style.width = `${widths.current.msglist}px`
-  }, [])
+  }, [view])
 
   const onSidebarResize = useCallback(w => { widths.current.sidebar = w }, [])
   const onMsglistResize = useCallback(w => { widths.current.msglist = w }, [])
@@ -182,16 +195,20 @@ export default function App() {
         case 'E':
           if (state.messages.selected && view === 'mail') {
             const msg = state.messages.selected
-            dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
-            window.api.imap.archiveMessage?.(msg.folder, msg.uid)
+            if (msg.folder) {
+              dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
+              window.api.imap.archiveMessage?.(msg.folder, msg.uid)
+            }
           }
           break
         case 'Delete':
         case 'Backspace':
           if (state.messages.selected && view === 'mail') {
             const msg = state.messages.selected
-            dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
-            window.api.imap.deleteMessage(msg.folder, msg.uid, false)
+            if (msg.folder) {
+              dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
+              window.api.imap.deleteMessage(msg.folder, msg.uid, false)
+            }
           }
           break
         case 'Escape':
