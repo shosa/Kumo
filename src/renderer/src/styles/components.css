@@ -396,6 +396,24 @@
 .sortbtn:hover { background: var(--hover); color: var(--ink); }
 
 .list__body { flex: 1; overflow-y: auto; min-height: 0; }
+.list__empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 48px 24px; color: var(--ink-4); text-align: center; font-size: 13px;
+}
+.list__load-more { padding: 16px; display: flex; justify-content: center; }
+
+/* skeleton loading rows */
+@keyframes shimmer { from { background-position: -200% 0; } to { background-position: 200% 0; } }
+.skeleton {
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-3) 25%, var(--hover-strong) 50%, var(--surface-3) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+.mail--skeleton {
+  display: flex; gap: var(--row-gap); padding: var(--row-pad-y) 15px var(--row-pad-y) 18px;
+  border-bottom: 1px solid var(--line); pointer-events: none;
+}
 
 .mail {
   display: flex; gap: var(--row-gap);

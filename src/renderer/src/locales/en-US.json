@@ -223,7 +223,7 @@
   "settings.showPreviewDesc": "Preview line of message content",
   "settings.dataAndCache": "Data & cache",
   "settings.clearBodyCache": "Clear message cache",
-  "settings.clearBodyCacheDesc": "Deletes locally cached email bodies",
+  "settings.clearBodyCacheDesc": "Removes downloaded bodies — the message list remains, bodies are refetched on next open",
   "settings.accentColor": "Accent color",
   "settings.accentColorDesc": "Tint for buttons and active elements",
   "settings.themeDesc": "Light or dark",

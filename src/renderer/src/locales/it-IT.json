@@ -223,7 +223,7 @@
   "settings.showPreviewDesc": "Riga di anteprima del contenuto",
   "settings.dataAndCache": "Dati e cache",
   "settings.clearBodyCache": "Svuota cache messaggi",
-  "settings.clearBodyCacheDesc": "Elimina i corpi delle email scaricati localmente",
+  "settings.clearBodyCacheDesc": "Elimina i corpi scaricati — la lista email rimane, i testi vengono ricaricati al prossimo click",
   "settings.accentColor": "Colore accento",
   "settings.accentColorDesc": "Tinta dei pulsanti e degli elementi attivi",
   "settings.themeDesc": "Chiaro o scuro",

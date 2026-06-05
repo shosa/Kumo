@@ -231,6 +231,7 @@ export default function ReadingPane() {
 
   useEffect(() => {
     if (!msg) { setBody(null); setAttachmentMeta([]); return }
+    if (!msg.folder) { setBodyLoading(false); return }  // guard: no IMAP calls without a folder
     setBody(null)
     setAttachmentMeta([])
     setBodyLoading(true)
