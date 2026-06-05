@@ -1,149 +1,34 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
-import { IconSearch, IconContacts, IconMail, IconPhone, IconClose } from './Icons'
+import { IconSearch, IconContacts, IconMail, IconPhone, IconBuilding, IconPin } from './Icons'
 
-const AVATAR_COLORS = [
-  '#0071e3','#5e5ebc','#bf5af2','#ff6b35',
-  '#30d158','#ffd60a','#ff453a','#64d2ff'
-]
+const AVATAR_COLORS = ['#0071e3','#5e5ebc','#bf5af2','#ff6b35','#30a46c','#e0820b','#e5484d','#0e9bd6']
 
-function avatarColor(name) {
-  if (!name) return AVATAR_COLORS[0]
+function avatarColor(name = '') {
   let h = 0
   for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h)
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length]
 }
 
-function initials(name, email) {
-  if (name) {
-    const parts = name.trim().split(' ').filter(Boolean)
-    if (parts.length >= 2) return ([...parts[0]][0] + [...parts[parts.length - 1]][0]).toUpperCase()
-    return [...parts[0]].slice(0, 2).join('').toUpperCase()
-  }
-  return [...(email || '?')].slice(0, 2).join('').toUpperCase()
-}
-
-function ContactRow({ contact, selected, onClick }) {
-  const bg = avatarColor(contact.display_name || contact.email)
-  const ini = initials(contact.display_name, contact.email)
-  const hasEmail = !!(contact.email)
-  const subtitle = contact.organization || (contact.display_name ? contact.email : null)
-
-  return (
-    <div
-      className={`contact-row${selected ? ' active' : ''}`}
-      onClick={onClick}
-      role="button"
-      tabIndex={0}
-      onKeyDown={e => e.key === 'Enter' && onClick()}
-    >
-      <div className="contact-row__avatar" style={{ background: bg }}>{ini}</div>
-      <div className="contact-row__info">
-        <div className="contact-row__name">
-          {contact.display_name || contact.email}
-        </div>
-        {subtitle && <div className="contact-row__email">{subtitle}</div>}
-      </div>
-    </div>
-  )
+function getInitials(name = '') {
+  const p = name.trim().split(/\s+/).filter(Boolean)
+  if (p.length >= 2) return (p[0][0] + p[p.length - 1][0]).toUpperCase()
+  return name.slice(0, 2).toUpperCase() || '?'
 }
 
 function formatBirthday(val) {
   if (!val) return null
-  // handles "2000-03-30" or "20000330"
   const m = val.replace(/-/g, '').match(/^(\d{4})(\d{2})(\d{2})$/)
   if (!m) return val
   return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3])).toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })
-}
-
-function SocialIcon({ type }) {
-  const label = type ? type.charAt(0).toUpperCase() + type.slice(1) : '?'
-  const colors = { facebook: '#1877f2', whatsapp: '#25d366', twitter: '#1da1f2', instagram: '#e1306c', linkedin: '#0a66c2' }
-  const bg = colors[type?.toLowerCase()] || 'var(--accent)'
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: '50%', background: bg, color: '#fff', fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
-      {label[0]}
-    </span>
-  )
-}
-
-function ContactDetail({ contact, onClose, onCompose }) {
-  const t = useTranslation()
-  const [photoOk, setPhotoOk] = useState(!!contact.photo_url)
-  const bg = avatarColor(contact.display_name || contact.email)
-  const ini = initials(contact.display_name, contact.email)
-  const birthday = formatBirthday(contact.birthday)
-  const socials = Array.isArray(contact.social_profiles) ? contact.social_profiles : []
-
-  return (
-    <div className="contact-detail">
-      <div className="contact-detail__header">
-        <button className="btn btn--icon" onClick={onClose} aria-label={t('action.close')}>
-          <IconClose size={16} />
-        </button>
-      </div>
-      <div className="contact-detail__hero">
-        {photoOk ? (
-          <img
-            src={contact.photo_url}
-            alt={contact.display_name}
-            className="contact-detail__avatar"
-            style={{ objectFit: 'cover' }}
-            onError={() => setPhotoOk(false)}
-          />
-        ) : (
-          <div className="contact-detail__avatar" style={{ background: bg }}>{ini}</div>
-        )}
-        <div className="contact-detail__name">{contact.display_name || contact.email}</div>
-        {contact.title && <div className="contact-detail__title">{contact.title}</div>}
-        {contact.organization && <div className="contact-detail__org">{contact.organization}</div>}
-      </div>
-      <div className="contact-detail__fields">
-        {contact.emails?.map((em, i) => (
-          <div key={i} className="contact-detail__field">
-            <IconMail size={14} />
-            <a href={`mailto:${em}`} onClick={e => { e.preventDefault(); onCompose(em) }}>{em}</a>
-          </div>
-        ))}
-        {contact.phones?.map((ph, i) => (
-          <div key={i} className="contact-detail__field">
-            <IconPhone size={14} />
-            <span>{ph}</span>
-          </div>
-        ))}
-        {birthday && (
-          <div className="contact-detail__field">
-            <span style={{ fontSize: 14 }}>🎂</span>
-            <span>{birthday}</span>
-          </div>
-        )}
-        {socials.map((s, i) => {
-          const label = s.displayname || s.user || s.url || s.type
-          const url = s.url?.startsWith('http') ? s.url : null
-          return (
-            <div key={i} className="contact-detail__field">
-              <SocialIcon type={s.type} />
-              {url
-                ? <a href={url} onClick={e => { e.preventDefault(); window.api.shell.openExternal(url) }}>{label}</a>
-                : <span>{label}</span>
-              }
-            </div>
-          )
-        })}
-        {contact.notes && (
-          <div className="contact-detail__notes">{contact.notes}</div>
-        )}
-      </div>
-    </div>
-  )
 }
 
 export default function ContactsPanel() {
   const state = useAppState()
   const dispatch = useAppDispatch()
   const t = useTranslation()
-  const [localSearch, setLocalSearch] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
 
   const loadContacts = useCallback(async () => {
     const email = state.auth.email
@@ -160,80 +45,196 @@ export default function ContactsPanel() {
     }
   }, [state.auth.isAuthenticated, state.contacts.list.length, loadContacts])
 
-  const displayed = localSearch.trim()
+  const filtered = searchQuery.trim()
     ? state.contacts.list.filter(c => {
-        const q = localSearch.toLowerCase()
+        const q = searchQuery.toLowerCase()
         return (c.display_name || '').toLowerCase().includes(q)
           || (c.email || '').toLowerCase().includes(q)
           || (c.organization || '').toLowerCase().includes(q)
       })
     : state.contacts.list
 
+  const groupedContacts = useMemo(() => {
+    const sorted = [...filtered].sort((a, b) =>
+      (a.display_name || a.email || '').localeCompare(b.display_name || b.email || '')
+    )
+    const map = {}
+    sorted.forEach(c => {
+      const letter = ((c.display_name || c.email || '?')[0]).toUpperCase()
+      if (!map[letter]) map[letter] = []
+      map[letter].push(c)
+    })
+    return Object.entries(map).map(([letter, contacts]) => ({ letter, contacts }))
+  }, [filtered])
+
   const selected = state.contacts.selected
 
-  function handleCompose(email) {
+  function selectContact(c) {
+    dispatch({ type: 'SELECT_CONTACT', payload: c })
+  }
+
+  function handleComposeToContact(contact) {
+    const email = contact.email || (contact.emails && contact.emails[0]) || ''
     window.api.window.openCompose({ mode: 'new', to: email })
   }
 
   return (
-    <div className="contacts-panel">
-      <div className="contacts-panel__list">
-        <div className="contacts-panel__search-wrap">
-          <IconSearch size={14} />
-          <input
-            className="contacts-panel__search"
-            type="text"
-            placeholder={t('contacts.search')}
-            value={localSearch}
-            onChange={e => setLocalSearch(e.target.value)}
-          />
-          {localSearch && (
-            <button className="btn btn--icon" style={{ width: 24, height: 24 }} onClick={() => setLocalSearch('')}>
-              <IconClose size={12} />
-            </button>
-          )}
+    <div className="full">
+      {/* left column */}
+      <div className="contacts__list">
+        <div className="contacts__head">
+          <div className="search">
+            <span className="search__icon"><IconSearch size={15} /></span>
+            <input
+              placeholder={t('contacts.search')}
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+          </div>
         </div>
-        <div className="contacts-panel__rows">
-          {state.contacts.loading && displayed.length === 0 ? (
-            <div className="contacts-panel__empty">
+        <div className="contacts__scroll scroll">
+          {state.contacts.loading && filtered.length === 0 ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}>
               <div className="spinner" />
             </div>
-          ) : displayed.length === 0 ? (
-            <div className="contacts-panel__empty">
-              <div style={{ opacity: 0.2, marginBottom: 'var(--sp-3)' }}><IconContacts size={44} /></div>
-              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}>
-                {localSearch ? t('messages.noResults') : t('contacts.empty')}
+          ) : filtered.length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px 0', color: 'var(--ink-4)' }}>
+              <IconContacts size={44} style={{ marginBottom: 12, opacity: 0.2 }} />
+              <span style={{ fontSize: 13 }}>
+                {searchQuery ? t('messages.noResults') : t('contacts.empty')}
               </span>
             </div>
           ) : (
-            displayed.map(c => (
-              <ContactRow
-                key={c.id || c.email}
-                contact={c}
-                selected={selected?.id === c.id}
-                onClick={() => dispatch({ type: 'SELECT_CONTACT', payload: c })}
-              />
+            groupedContacts.map(({ letter, contacts }) => (
+              <React.Fragment key={letter}>
+                <div className="contacts__alpha">{letter}</div>
+                {contacts.map(c => (
+                  <div
+                    key={c.id || c.email}
+                    className={`crow${selected?.id === c.id ? ' active' : ''}`}
+                    onClick={() => selectContact(c)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={e => e.key === 'Enter' && selectContact(c)}
+                  >
+                    <div className="crow__av" style={{ background: avatarColor(c.display_name || c.email) }}>
+                      {getInitials(c.display_name || c.email || '')}
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div className="crow__name">{c.display_name || c.email}</div>
+                      <div className="crow__sub">{c.organization || (c.display_name ? c.email : null) || ''}</div>
+                    </div>
+                  </div>
+                ))}
+              </React.Fragment>
             ))
           )}
         </div>
       </div>
 
-      <div className="contacts-panel__detail">
-        {selected ? (
-          <ContactDetail
-            contact={selected}
-            onClose={() => dispatch({ type: 'SELECT_CONTACT', payload: null })}
-            onCompose={handleCompose}
-          />
-        ) : (
-          <div className="contacts-panel__empty">
-            <div style={{ opacity: 0.2, marginBottom: 'var(--sp-3)' }}><IconContacts size={52} /></div>
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-tertiary)' }}>
-              {t('contacts.selectContact')}
-            </span>
+      {/* right column — detail */}
+      {selected ? (
+        <div className="cdetail scroll" key={selected.id}>
+          <div
+            className="cdetail__av fadein"
+            style={{ background: avatarColor(selected.display_name || selected.email) }}
+          >
+            {getInitials(selected.display_name || selected.email || '')}
           </div>
-        )}
-      </div>
+          <div className="cdetail__name">{selected.display_name || selected.email}</div>
+          {selected.title && <div className="cdetail__role">{selected.title}</div>}
+          {selected.organization && <div className="cdetail__role">{selected.organization}</div>}
+          <div className="cdetail__actions">
+            <button
+              className="act act--primary"
+              onClick={() => handleComposeToContact(selected)}
+            >
+              <IconMail size={15} /> Email
+            </button>
+            {(selected.phones?.[0]) && (
+              <button className="act">
+                <IconPhone size={15} /> Chiama
+              </button>
+            )}
+          </div>
+          <div className="cdetail__card">
+            {(selected.emails || (selected.email ? [selected.email] : [])).filter(Boolean).map((email, i) => (
+              <div key={i} className="cfield">
+                <span className="cfield__ic"><IconMail size={17} /></span>
+                <div>
+                  <div className="cfield__label">Email</div>
+                  <div className="cfield__val">
+                    <a href="#" onClick={ev => { ev.preventDefault(); handleComposeToContact({ ...selected, email }) }}>
+                      {email}
+                    </a>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {(selected.phones || []).map((phone, i) => (
+              <div key={i} className="cfield">
+                <span className="cfield__ic"><IconPhone size={17} /></span>
+                <div>
+                  <div className="cfield__label">Telefono</div>
+                  <div className="cfield__val">{phone}</div>
+                </div>
+              </div>
+            ))}
+            {selected.organization && (
+              <div className="cfield">
+                <span className="cfield__ic"><IconBuilding size={17} /></span>
+                <div>
+                  <div className="cfield__label">Azienda</div>
+                  <div className="cfield__val">{selected.organization}</div>
+                </div>
+              </div>
+            )}
+            {selected.birthday && (
+              <div className="cfield">
+                <span className="cfield__ic" style={{ fontSize: 17 }}>🎂</span>
+                <div>
+                  <div className="cfield__label">Compleanno</div>
+                  <div className="cfield__val">{formatBirthday(selected.birthday)}</div>
+                </div>
+              </div>
+            )}
+            {selected.notes && (
+              <div className="cfield">
+                <span className="cfield__ic"><IconPin size={17} /></span>
+                <div>
+                  <div className="cfield__label">Note</div>
+                  <div className="cfield__val">{selected.notes}</div>
+                </div>
+              </div>
+            )}
+            {Array.isArray(selected.social_profiles) && selected.social_profiles.map((s, i) => {
+              const label = s.displayname || s.user || s.url || s.type
+              const url = s.url?.startsWith('http') ? s.url : null
+              return (
+                <div key={i} className="cfield">
+                  <span className="cfield__ic" style={{ fontSize: 17 }}>{(s.type || '?')[0].toUpperCase()}</span>
+                  <div>
+                    <div className="cfield__label">{s.type || 'Social'}</div>
+                    <div className="cfield__val">
+                      {url
+                        ? <a href="#" onClick={e => { e.preventDefault(); window.api.shell.openExternal(url) }}>{label}</a>
+                        : <span>{label}</span>
+                      }
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--ink-4)' }}>
+          <div style={{ textAlign: 'center' }}>
+            <IconContacts size={48} style={{ marginBottom: 14, opacity: 0.3 }} />
+            <div style={{ fontSize: 13 }}>{t('contacts.selectContact')}</div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
