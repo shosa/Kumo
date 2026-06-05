@@ -353,7 +353,7 @@ export default function MessageList() {
             ? <button className="icon-btn" style={{ width: 22, height: 22 }} onClick={() => handleSearchChange('')}>
                 <IconClose size={13} />
               </button>
-            : <kbd>⌘K</kbd>
+            : <kbd>Ctrl+K</kbd>
           }
         </div>
       </div>

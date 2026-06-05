@@ -40,7 +40,7 @@ export default function Rail({ onSearch }) {
       <NavBtn id="mail"     Icon={IconMail}     label="Posta"      badge={unread || null} />
       <NavBtn id="contacts" Icon={IconContacts} label="Contatti" />
       <NavBtn id="calendar" Icon={IconCalendar} label="Calendario" />
-      <button className="rail__btn" title="Cerca  ⌘K" onClick={onSearch}>
+      <button className="rail__btn" title="Cerca  Ctrl+K" onClick={onSearch}>
         <IconSearch size={20} />
       </button>
       <div className="rail__sep" />
