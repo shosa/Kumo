@@ -300,6 +300,16 @@ export default function Settings() {
                 >
                   <option value="it-IT">Italiano</option>
                   <option value="en-US">English</option>
+                  <option value="fr-FR">Français</option>
+                  <option value="de-DE">Deutsch</option>
+                  <option value="es-ES">Español</option>
+                  <option value="pt-BR">Português (BR)</option>
+                  <option value="ru-RU">Русский</option>
+                  <option value="zh-CN">中文 (简体)</option>
+                  <option value="ja-JP">日本語</option>
+                  <option value="ko-KR">한국어</option>
+                  <option value="tr-TR">Türkçe</option>
+                  <option value="nl-NL">Nederlands</option>
                 </select>
               </div>
             </div>

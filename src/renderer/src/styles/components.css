@@ -846,6 +846,58 @@
 }
 .compose-field__cc-toggle:hover, .compose-field__icon-btn:hover { background: var(--hover-strong); color: var(--ink); }
 
+/* — Attachment chips + image/PDF preview (MessageViewerApp) — */
+.attachments-strip {
+  padding: 10px 20px; border-top: 1px solid var(--line);
+  display: flex; gap: 8px; flex-wrap: wrap; background: var(--surface-2); flex-shrink: 0;
+}
+.attachment-chip {
+  display: flex; align-items: stretch; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  font-size: 12px; color: var(--ink-2); overflow: hidden;
+  transition: border-color .14s;
+}
+.attachment-chip--loading { opacity: 0.7; }
+.attachment-chip__body {
+  display: flex; align-items: center; gap: 8px; padding: 7px 11px;
+  flex: 1; min-width: 0; cursor: pointer;
+  transition: background .12s;
+}
+.attachment-chip__body:hover { background: var(--hover); color: var(--ink); }
+.attachment-chip__sep { width: 1px; background: var(--line); flex-shrink: 0; }
+.attachment-chip__dl-btn {
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 10px; background: transparent; border: none;
+  color: var(--ink-3); cursor: pointer; flex-shrink: 0;
+  transition: background .12s, color .12s;
+}
+.attachment-chip__dl-btn:hover { background: var(--hover); color: var(--accent); }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spinner--sm { width: 14px !important; height: 14px !important; border-width: 1.5px !important; }
+
+.image-preview-overlay {
+  position: fixed; inset: 0; z-index: 500;
+  background: rgba(0,0,0,0.75); backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+}
+.image-preview-modal {
+  display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--line-strong);
+  border-radius: var(--r-xl); box-shadow: var(--shadow-window);
+  overflow: hidden; width: min(92vw, 1100px); height: min(88vh, 900px);
+}
+.image-preview-modal__header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px; border-bottom: 1px solid var(--line);
+  gap: 12px; color: var(--ink); flex-shrink: 0;
+}
+.image-preview-modal__body {
+  flex: 1; overflow: hidden; display: flex;
+  align-items: center; justify-content: center; padding: 16px;
+  background: var(--surface-2);
+}
+
 /* — btn--danger (used in viewer toolbar) — */
 .btn--danger { color: var(--color-error) !important; }
 .btn--danger:hover { background: color-mix(in srgb, var(--color-error) 12%, transparent) !important; }
