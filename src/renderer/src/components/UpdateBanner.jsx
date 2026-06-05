@@ -50,7 +50,7 @@ export default function UpdateModal() {
     }}>
       <div style={{
         width: 400,
-        background: 'var(--bg-layer1)',
+        background: 'var(--surface)',
         border: '1px solid var(--glass-border-light)',
         borderRadius: 'var(--radius-xl)',
         boxShadow: '0 32px 80px rgba(0,0,0,0.55), var(--glass-inner-glow)',
