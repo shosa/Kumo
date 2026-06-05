@@ -419,6 +419,7 @@ export default function MessageList() {
                     threadCount={idx === 0 && isMulti ? threadMsgs.length : null}
                     isThreadChild={idx > 0}
                     contactMap={contactMap}
+                    state={state}
                     onQuickAction={(type) => handleContextAction(type, [msg])}
                     onThreadExpand={isMulti && idx === 0 ? () => setExpandedThreads(prev => {
                       const next = new Set(prev)
@@ -472,7 +473,7 @@ export default function MessageList() {
   )
 }
 
-function MessageItem({ message, selected, multiSelected, threadCount, isThreadChild, onThreadExpand, onClick, onDoubleClick, onContextMenu, onDragStart, onQuickAction, contactMap }) {
+function MessageItem({ message, selected, multiSelected, threadCount, isThreadChild, onThreadExpand, onClick, onDoubleClick, onContextMenu, onDragStart, onQuickAction, contactMap, state }) {
   const isUnread  = !message.flags?.includes('\\Seen')
   const isStarred = message.flags?.includes('\\Flagged')
   const hasAttachments = message.has_attachments || false
@@ -493,8 +494,8 @@ function MessageItem({ message, selected, multiSelected, threadCount, isThreadCh
   return (
     <div
       className={`mail${selected ? ' sel' : ''}${isUnread ? '' : ' read'}${multiSelected ? ' multi-selected' : ''}${isThreadChild ? ' thread-child' : ''}`}
-      data-avatars="on"
-      data-preview="on"
+      data-avatars={state.settings.showAvatars !== false ? 'on' : 'off'}
+      data-preview={state.settings.showPreview !== false ? 'on' : 'off'}
       draggable
       onDragStart={onDragStart}
       onClick={onClick}
