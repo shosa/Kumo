@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react'
 import { useTranslation } from '../i18n'
+import { useAppState } from '../context/AppContext'
+
+const SKIP_KEY = 'kumo-skip-update-version'
 
 export default function UpdateModal() {
   const t = useTranslation()
+  const state = useAppState()
   const [status, setStatus] = useState(null)
   const [dismissed, setDismissed] = useState(false)
   const [preparing, setPreparing] = useState(false)
   const [localPercent, setLocalPercent] = useState(0)
+  const [skipVersion, setSkipVersion] = useState(false)
 
   useEffect(() => {
     const off = window.api.on('updater:status', (data) => {
@@ -18,13 +23,18 @@ export default function UpdateModal() {
       if (data.event === 'downloaded' || data.event === 'error') {
         setPreparing(false)
       }
+      // Don't show if user already skipped this version
+      if (data.event === 'available' && data.version) {
+        const skipped = localStorage.getItem(SKIP_KEY)
+        if (skipped === data.version) return
+      }
       setDismissed(false)
       setStatus(prev => ({ ...prev, ...data }))
     })
     return () => off?.()
   }, [])
 
-  if (!status || dismissed) return null
+  if (!status || dismissed || state.settings.updatesEnabled === false) return null
 
   const isDownloading = preparing || status.event === 'progress'
   const percent = status.event === 'progress' ? status.percent : localPercent
@@ -165,12 +175,34 @@ export default function UpdateModal() {
           </div>
         )}
 
+        {/* Skip version checkbox — only in 'available' state */}
+        {status.event === 'available' && !isDownloading && (
+          <label style={{
+            display: 'flex', alignItems: 'center', gap: 'var(--sp-2)',
+            fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', cursor: 'pointer',
+            userSelect: 'none',
+          }}>
+            <input
+              type="checkbox"
+              checked={skipVersion}
+              onChange={e => setSkipVersion(e.target.checked)}
+              style={{ cursor: 'pointer', accentColor: 'var(--accent)' }}
+            />
+            {t('update.skipVersion')}
+          </label>
+        )}
+
         {/* Action buttons */}
         <div style={{ display: 'flex', gap: 'var(--sp-2)', justifyContent: 'flex-end' }}>
           {/* Later / Dismiss always available except mid-download */}
           {!isDownloading && (
             <button
-              onClick={() => setDismissed(true)}
+              onClick={() => {
+                if (skipVersion && status.version) {
+                  localStorage.setItem(SKIP_KEY, status.version)
+                }
+                setDismissed(true)
+              }}
               style={{
                 padding: '8px 18px',
                 borderRadius: 'var(--radius-md)',

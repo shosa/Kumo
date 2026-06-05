@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, app } from 'electron'
 
 let _sender = null
 let _autoUpdater = null
@@ -32,6 +32,8 @@ export function initUpdater(mainWindow) {
   _sender = mainWindow.webContents
 
   if (!_registered) {
+    ipcMain.handle('updater:version', () => app.getVersion())
+
     ipcMain.handle('updater:check', async () => {
       try {
         const au = await getAutoUpdater()

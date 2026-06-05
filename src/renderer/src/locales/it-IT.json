@@ -238,5 +238,16 @@
   "sidebar.lastSync": "Ultima sincronizzazione alle",
   "sidebar.notSynced": "Non ancora sincronizzato",
   "settings.clearMessages": "Cancella messaggi dal database",
-  "settings.clearMessagesDesc": "Rimuove tutti i messaggi locali — vengono riscaricati dal server alla prossima sincronizzazione"
+  "settings.clearMessagesDesc": "Rimuove tutti i messaggi locali — vengono riscaricati dal server alla prossima sincronizzazione",
+  "settings.updates": "Aggiornamenti",
+  "settings.version": "Versione",
+  "settings.updateNotifications": "Notifiche aggiornamenti",
+  "settings.updateNotificationsDesc": "Mostra un banner quando è disponibile una nuova versione",
+  "settings.checkUpdates": "Controlla aggiornamenti",
+  "settings.checkUpdatesDesc": "Verificato all'avvio",
+  "settings.checkingUpdates": "Controllo in corso…",
+  "settings.updateAvailable": "La versione {0} è disponibile",
+  "settings.upToDate": "Kumo è aggiornato",
+  "settings.updateError": "Impossibile verificare gli aggiornamenti",
+  "update.skipVersion": "Non avvisarmi per questa versione"
 }

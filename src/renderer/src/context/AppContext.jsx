@@ -42,7 +42,8 @@ const initialState = {
     language: 'en-US',
     accentColor: '#0071e3',
     showAvatars: true,
-    showPreview: true
+    showPreview: true,
+    updatesEnabled: true
   },
   view: 'mail',        // 'mail' | 'contacts' | 'calendar'
   contacts: {

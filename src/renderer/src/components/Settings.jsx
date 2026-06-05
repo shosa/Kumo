@@ -11,6 +11,9 @@ export default function Settings() {
   const email = state.auth.email || ''
   const initials = email.slice(0, 2).toUpperCase() || '?'
 
+  const [appVersion,       setAppVersion]       = useState('')
+  const [updateStatus,     setUpdateStatus]     = useState(null) // null | 'checking' | 'available' | 'not-available' | 'error'
+  const [updateVersion,    setUpdateVersion]    = useState('')
   const [clearingMsgs,     setClearingMsgs]     = useState(false)
   const [msgsCleared,      setMsgsCleared]      = useState(false)
   const [clearingCache,    setClearingCache]    = useState(false)
@@ -27,7 +30,27 @@ export default function Settings() {
 
   useEffect(() => {
     window.api.store.getDbPath?.().then(r => { if (r?.ok) setDbPath(r.path || '') })
+    window.api.updater.version?.().then(v => { if (v) setAppVersion(v) })
   }, [])
+
+  async function handleCheckUpdate() {
+    setUpdateStatus('checking')
+    setUpdateVersion('')
+    const off = window.api.on('updater:status', (data) => {
+      if (data.event === 'available') {
+        setUpdateStatus('available')
+        setUpdateVersion(data.version || '')
+        off?.()
+      } else if (data.event === 'not-available') {
+        setUpdateStatus('not-available')
+        off?.()
+      } else if (data.event === 'error') {
+        setUpdateStatus('error')
+        off?.()
+      }
+    })
+    await window.api.updater.check().catch(() => { setUpdateStatus('error'); off?.() })
+  }
 
   function update(key, value) {
     dispatch({ type: 'UPDATE_SETTINGS', payload: { [key]: value } })
@@ -278,6 +301,59 @@ export default function Settings() {
                   {resetting
                     ? <span className="spinner" style={{ width: 14, height: 14 }} />
                     : <IconTrash size={15} />}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Updates */}
+          <div className="sset">
+            <div className="sset__label">{t('settings.updates')}</div>
+            <div className="sset__card">
+              <div className="srow">
+                <div className="srow__txt">
+                  <div className="srow__name">{t('settings.version')}</div>
+                  <div className="srow__desc">Kumo {appVersion || '—'}</div>
+                </div>
+              </div>
+              <div className="srow">
+                <div className="srow__txt">
+                  <div className="srow__name">{t('settings.updateNotifications')}</div>
+                  <div className="srow__desc">{t('settings.updateNotificationsDesc')}</div>
+                </div>
+                <label className="tog">
+                  <input
+                    type="checkbox"
+                    checked={s.updatesEnabled !== false}
+                    onChange={e => update('updatesEnabled', e.target.checked)}
+                  />
+                  <span className="tog__track" />
+                </label>
+              </div>
+              <div className="srow">
+                <div className="srow__txt">
+                  <div className="srow__name">{t('settings.checkUpdates')}</div>
+                  <div className="srow__desc" style={{
+                    color: updateStatus === 'available'     ? 'var(--color-success)'
+                         : updateStatus === 'error'         ? 'var(--color-error)'
+                         : 'var(--ink-3)'
+                  }}>
+                    {updateStatus === 'checking'      ? t('settings.checkingUpdates')
+                   : updateStatus === 'available'     ? t('settings.updateAvailable', updateVersion)
+                   : updateStatus === 'not-available' ? t('settings.upToDate')
+                   : updateStatus === 'error'         ? t('settings.updateError')
+                   : t('settings.checkUpdatesDesc')}
+                  </div>
+                </div>
+                <button
+                  className="act"
+                  onClick={handleCheckUpdate}
+                  disabled={updateStatus === 'checking'}
+                  type="button"
+                >
+                  {updateStatus === 'checking'
+                    ? <><span className="spinner" style={{ width: 12, height: 12 }} /> {t('settings.checkingUpdates')}</>
+                    : t('settings.checkUpdates')}
                 </button>
               </div>
             </div>

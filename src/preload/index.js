@@ -147,6 +147,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // ── Updater ─────────────────────────────────────────────────────────────────
   updater: {
+    version:  () => ipcRenderer.invoke('updater:version'),
     check:    () => ipcRenderer.invoke('updater:check'),
     download: () => ipcRenderer.invoke('updater:download'),
     install:  () => ipcRenderer.invoke('updater:install')
