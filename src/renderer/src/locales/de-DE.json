@@ -238,5 +238,9 @@
   "sidebar.lastSync": "Zuletzt synchronisiert um",
   "sidebar.notSynced": "Noch nicht synchronisiert",
   "settings.clearMessages": "Nachrichtendatenbank leeren",
-  "settings.clearMessagesDesc": "Entfernt alle lokalen Nachrichten — werden bei der nächsten Synchronisierung erneut heruntergeladen"
+  "settings.clearMessagesDesc": "Entfernt alle lokalen Nachrichten — werden bei der nächsten Synchronisierung erneut heruntergeladen",
+  "calendar.hide": "Ausblenden",
+  "calendar.show": "Einblenden",
+  "calendar.reminders": "Erinnerungen",
+  "calendar.hasEvents": "Hat Ereignisse"
 }

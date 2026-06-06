@@ -238,5 +238,9 @@
   "sidebar.lastSync": "最后同步于",
   "sidebar.notSynced": "尚未同步",
   "settings.clearMessages": "清除邮件数据库",
-  "settings.clearMessagesDesc": "删除所有本地邮件 — 下次同步时将重新下载"
+  "settings.clearMessagesDesc": "删除所有本地邮件 — 下次同步时将重新下载",
+  "calendar.hide": "隐藏",
+  "calendar.show": "显示",
+  "calendar.reminders": "提醒",
+  "calendar.hasEvents": "有日程"
 }

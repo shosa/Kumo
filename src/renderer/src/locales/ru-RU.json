@@ -238,5 +238,9 @@
   "sidebar.lastSync": "Последняя синхронизация в",
   "sidebar.notSynced": "Ещё не синхронизировано",
   "settings.clearMessages": "Очистить базу данных сообщений",
-  "settings.clearMessagesDesc": "Удаляет все локальные сообщения — они будут повторно загружены при следующей синхронизации"
+  "settings.clearMessagesDesc": "Удаляет все локальные сообщения — они будут повторно загружены при следующей синхронизации",
+  "calendar.hide": "Скрыть",
+  "calendar.show": "Показать",
+  "calendar.reminders": "Напоминания",
+  "calendar.hasEvents": "Есть события"
 }

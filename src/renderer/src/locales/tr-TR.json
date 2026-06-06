@@ -238,5 +238,9 @@
   "sidebar.lastSync": "Son senkronizasyon",
   "sidebar.notSynced": "Henüz senkronize edilmedi",
   "settings.clearMessages": "Mesaj veritabanını temizle",
-  "settings.clearMessagesDesc": "Tüm yerel mesajları kaldırır — bir sonraki senkronizasyonda yeniden indirilirler"
+  "settings.clearMessagesDesc": "Tüm yerel mesajları kaldırır — bir sonraki senkronizasyonda yeniden indirilirler",
+  "calendar.hide": "Gizle",
+  "calendar.show": "Göster",
+  "calendar.reminders": "Hatırlatıcılar",
+  "calendar.hasEvents": "Etkinlik var"
 }

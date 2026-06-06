@@ -238,5 +238,9 @@
   "sidebar.lastSync": "Dernière synchro à",
   "sidebar.notSynced": "Pas encore synchronisé",
   "settings.clearMessages": "Effacer la base de messages",
-  "settings.clearMessagesDesc": "Supprime tous les messages locaux — ils seront retéléchargés lors de la prochaine synchronisation"
+  "settings.clearMessagesDesc": "Supprime tous les messages locaux — ils seront retéléchargés lors de la prochaine synchronisation",
+  "calendar.hide": "Masquer",
+  "calendar.show": "Afficher",
+  "calendar.reminders": "Rappels",
+  "calendar.hasEvents": "A des événements"
 }

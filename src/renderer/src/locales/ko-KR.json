@@ -238,5 +238,9 @@
   "sidebar.lastSync": "마지막 동기화",
   "sidebar.notSynced": "아직 동기화되지 않음",
   "settings.clearMessages": "메시지 데이터베이스 지우기",
-  "settings.clearMessagesDesc": "모든 로컬 메시지를 삭제합니다 — 다음 동기화 시 다시 다운로드됩니다"
+  "settings.clearMessagesDesc": "모든 로컬 메시지를 삭제합니다 — 다음 동기화 시 다시 다운로드됩니다",
+  "calendar.hide": "숨기기",
+  "calendar.show": "표시",
+  "calendar.reminders": "알림",
+  "calendar.hasEvents": "일정 있음"
 }

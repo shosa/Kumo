@@ -134,9 +134,11 @@ contextBridge.exposeInMainWorld('api', {
 
   // ── Calendar ────────────────────────────────────────────────────────────────
   calendar: {
-    sync:   (email, password)           => ipcRenderer.invoke('calendar:sync', email, password),
-    events: (email, fromTs, toTs)       => ipcRenderer.invoke('calendar:events', email, fromTs, toTs),
-    clear:  (email)                     => ipcRenderer.invoke('calendar:clear', email)
+    sync:         (email, password)       => ipcRenderer.invoke('calendar:sync', email, password),
+    events:       (email, fromTs, toTs)   => ipcRenderer.invoke('calendar:events', email, fromTs, toTs),
+    clear:        (email)                 => ipcRenderer.invoke('calendar:clear', email),
+    sources:      (email)                 => ipcRenderer.invoke('calendar:sources', email),
+    toggleSource: (href, enabled)         => ipcRenderer.invoke('calendar:toggle-source', href, enabled)
   },
 
   // ── Dialog ──────────────────────────────────────────────────────────────────

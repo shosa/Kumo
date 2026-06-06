@@ -238,5 +238,9 @@
   "sidebar.lastSync": "Última sincronização às",
   "sidebar.notSynced": "Ainda não sincronizado",
   "settings.clearMessages": "Limpar banco de dados de mensagens",
-  "settings.clearMessagesDesc": "Remove todas as mensagens locais — serão baixadas novamente na próxima sincronização"
+  "settings.clearMessagesDesc": "Remove todas as mensagens locais — serão baixadas novamente na próxima sincronização",
+  "calendar.hide": "Ocultar",
+  "calendar.show": "Mostrar",
+  "calendar.reminders": "Lembretes",
+  "calendar.hasEvents": "Tem eventos"
 }

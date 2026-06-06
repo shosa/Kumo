@@ -143,6 +143,24 @@ export async function initDB() {
     console.error('DB migration v5 error (non-fatal):', err.message)
   }
 
+  try {
+    _migrate6(db)
+  } catch (err) {
+    console.error('DB migration v6 error (non-fatal):', err.message)
+  }
+
+  try {
+    _migrate7(db)
+  } catch (err) {
+    console.error('DB migration v7 error (non-fatal):', err.message)
+  }
+
+  try {
+    _migrate8(db)
+  } catch (err) {
+    console.error('DB migration v8 error (non-fatal):', err.message)
+  }
+
   persistDB()
   return db
 }
@@ -446,6 +464,59 @@ function _migrate5(d) {
   try { d.run(`ALTER TABLE sync_queue ADD COLUMN next_retry_at INTEGER`) } catch { /* already exists */ }
   d.run(`CREATE INDEX IF NOT EXISTS idx_sync_queue_retry ON sync_queue(next_retry_at ASC)`)
   d.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('schemaVersion', '5')`)
+}
+
+function _migrate8(d) {
+  let ver = 0
+  try {
+    const s = d.prepare(`SELECT value FROM settings WHERE key = 'schemaVersion'`)
+    if (s.step()) ver = parseInt(JSON.parse(s.getAsObject().value), 10) || 0
+    s.free()
+  } catch { /* ignore */ }
+  if (ver >= 8) return
+
+  try { d.run(`ALTER TABLE calendar_events ADD COLUMN calendar_href TEXT`) } catch { /* already exists */ }
+  d.run(`CREATE INDEX IF NOT EXISTS idx_events_href ON calendar_events(calendar_href)`)
+  d.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('schemaVersion', '8')`)
+}
+
+function _migrate7(d) {
+  let ver = 0
+  try {
+    const s = d.prepare(`SELECT value FROM settings WHERE key = 'schemaVersion'`)
+    if (s.step()) ver = parseInt(JSON.parse(s.getAsObject().value), 10) || 0
+    s.free()
+  } catch { /* ignore */ }
+  if (ver >= 7) return
+
+  d.run(`
+    CREATE TABLE IF NOT EXISTS calendar_sources (
+      href            TEXT PRIMARY KEY,
+      account_email   TEXT,
+      name            TEXT NOT NULL,
+      color           TEXT DEFAULT '#0071e3',
+      supports_events INTEGER DEFAULT 1,
+      supports_todos  INTEGER DEFAULT 0,
+      enabled         INTEGER DEFAULT 1,
+      updated_at      INTEGER
+    )
+  `)
+  d.run(`CREATE INDEX IF NOT EXISTS idx_cal_sources_account ON calendar_sources(account_email)`)
+  d.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('schemaVersion', '7')`)
+}
+
+function _migrate6(d) {
+  let ver = 0
+  try {
+    const s = d.prepare(`SELECT value FROM settings WHERE key = 'schemaVersion'`)
+    if (s.step()) ver = parseInt(JSON.parse(s.getAsObject().value), 10) || 0
+    s.free()
+  } catch { /* ignore */ }
+  if (ver >= 6) return
+
+  try { d.run(`ALTER TABLE calendar_events ADD COLUMN type TEXT DEFAULT 'event'`) } catch { /* already exists */ }
+  d.run(`CREATE INDEX IF NOT EXISTS idx_events_type ON calendar_events(type)`)
+  d.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('schemaVersion', '6')`)
 }
 
 export function getDB() {
@@ -996,36 +1067,75 @@ export function deleteContact(id) {
   scheduleSave()
 }
 
+// ── calendar source helpers ───────────────────────────────────────────────────
+
+export function upsertCalendarSource(src) {
+  const d = getDB()
+  d.run(`
+    INSERT INTO calendar_sources (href, account_email, name, color, supports_events, supports_todos, enabled, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+    ON CONFLICT(href) DO UPDATE SET
+      name            = excluded.name,
+      color           = excluded.color,
+      supports_events = excluded.supports_events,
+      supports_todos  = excluded.supports_todos,
+      updated_at      = excluded.updated_at
+  `, [
+    src.href, src.account_email || null, src.name, src.color || '#0071e3',
+    src.supportsEvents ? 1 : 0, src.supportsTodos ? 1 : 0, Date.now()
+  ])
+  scheduleSave()
+}
+
+export function getCalendarSources(accountEmail) {
+  const d = getDB()
+  const stmt = accountEmail
+    ? d.prepare(`SELECT * FROM calendar_sources WHERE account_email = ? OR account_email IS NULL ORDER BY name ASC`)
+    : d.prepare(`SELECT * FROM calendar_sources ORDER BY name ASC`)
+  if (accountEmail) stmt.bind([accountEmail])
+  return allRows(stmt)
+}
+
+export function setCalendarSourceEnabled(href, enabled) {
+  const d = getDB()
+  d.run(`UPDATE calendar_sources SET enabled = ? WHERE href = ?`, [enabled ? 1 : 0, href])
+  scheduleSave()
+}
+
 // ── calendar helpers ──────────────────────────────────────────────────────────
 
 export function upsertEvent(event) {
   const d = getDB()
   d.run(`
     INSERT INTO calendar_events
-      (id, account_email, calendar_id, title, description, location,
-       start_ts, end_ts, all_day, rrule, status, organizer, attendees, etag, href, updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      (id, account_email, calendar_id, calendar_href, title, description, location,
+       start_ts, end_ts, all_day, rrule, status, organizer, attendees, etag, href, type, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET
-      title        = excluded.title,
-      description  = excluded.description,
-      location     = excluded.location,
-      start_ts     = excluded.start_ts,
-      end_ts       = excluded.end_ts,
-      all_day      = excluded.all_day,
-      rrule        = excluded.rrule,
-      status       = excluded.status,
-      organizer    = excluded.organizer,
-      attendees    = excluded.attendees,
-      etag         = excluded.etag,
-      href         = excluded.href,
-      updated_at   = excluded.updated_at
+      title          = excluded.title,
+      description    = excluded.description,
+      location       = excluded.location,
+      start_ts       = excluded.start_ts,
+      end_ts         = excluded.end_ts,
+      all_day        = excluded.all_day,
+      rrule          = excluded.rrule,
+      status         = excluded.status,
+      organizer      = excluded.organizer,
+      attendees      = excluded.attendees,
+      etag           = excluded.etag,
+      href           = excluded.href,
+      type           = excluded.type,
+      calendar_href  = excluded.calendar_href,
+      updated_at     = excluded.updated_at
   `, [
     event.id, event.account_email || null, event.calendar_id || null,
+    event.calendar_href || null,
     event.title || '', event.description || null, event.location || null,
     event.start_ts || 0, event.end_ts || 0, event.all_day ? 1 : 0,
     event.rrule || null, event.status || 'CONFIRMED',
     event.organizer || null, JSON.stringify(event.attendees || []),
-    event.etag || null, event.href || null, Date.now()
+    event.etag || null, event.href || null,
+    event.type || 'event', Date.now()
   ])
   scheduleSave()
 }

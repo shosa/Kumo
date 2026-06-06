@@ -8,6 +8,7 @@ import {
   getAttachmentsMeta, markAttachmentDownloaded,
   upsertContact, getContacts, searchContacts, deleteContacts,
   upsertEvent, getEvents, deleteEvents,
+  upsertCalendarSource, getCalendarSources, setCalendarSourceEnabled,
   removeMessages, toggleMessageFlag, persistDBImmediate, recalcFolderUnread, getSyncQueueCount
 } from './store/db.js'
 import { saveCredentials, getCredentials, deleteCredentials, listStoredEmails } from './auth/index.js'
@@ -882,9 +883,27 @@ ipcMain.handle('contacts:dump-raw', async (_e, email, password) => {
 
 ipcMain.handle('calendar:sync', async (_e, email, password) => {
   try {
-    const events = await syncCalendar(email, password)
-    for (const ev of events) upsertEvent({ ...ev, account_email: email })
-    return { ok: true, count: events.length }
+    const { items, sources } = await syncCalendar(email, password)
+
+    // Upsert all discovered sources (ON CONFLICT preserves user's enabled state)
+    for (const src of sources) {
+      upsertCalendarSource({ ...src, account_email: email })
+    }
+
+    // Read which sources the user has enabled
+    const dbSources = getCalendarSources(email)
+    const enabledHrefs = new Set(dbSources.filter(s => s.enabled).map(s => s.href))
+
+    // Wipe previous events and re-save only from enabled sources
+    deleteEvents(email)
+    let saved = 0
+    for (const item of items) {
+      if (enabledHrefs.size === 0 || enabledHrefs.has(item.calendar_href)) {
+        upsertEvent({ ...item, account_email: email })
+        saved++
+      }
+    }
+    return { ok: true, count: saved }
   } catch (err) {
     return { ok: false, error: err.message }
   }
@@ -902,6 +921,24 @@ ipcMain.handle('calendar:events', async (_e, email, fromTs, toTs) => {
 ipcMain.handle('calendar:clear', async (_e, email) => {
   try {
     deleteEvents(email)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('calendar:sources', async (_e, email) => {
+  try {
+    const sources = getCalendarSources(email)
+    return { ok: true, sources }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('calendar:toggle-source', async (_e, href, enabled) => {
+  try {
+    setCalendarSourceEnabled(href, enabled)
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }

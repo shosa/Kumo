@@ -636,6 +636,18 @@
 .mini__day.dot-day::after { content: ""; position: absolute; bottom: 3px; width: 4px; height: 4px; border-radius: 99px; background: var(--accent); }
 .mini__day.today.dot-day::after { background: #fff; }
 
+/* Calendar sources list */
+.cal__sources { padding: 10px 14px 4px; display: flex; flex-direction: column; gap: 3px; border-bottom: 1px solid var(--line); margin-bottom: 2px; }
+.cal__src { display: flex; align-items: center; gap: 9px; padding: 5px 4px; border-radius: var(--r-sm); }
+.cal__src:hover { background: var(--hover); }
+.cal__src-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.cal__src-name { flex: 1; font-size: 12.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Toggle switch */
+.cal__src-toggle { width: 30px; height: 17px; border-radius: 9px; background: var(--line-strong); border: none; cursor: pointer; padding: 2px; display: flex; align-items: center; transition: background .15s; flex-shrink: 0; -webkit-app-region: no-drag; }
+.cal__src-toggle.on { background: var(--accent); }
+.cal__src-toggle span { width: 13px; height: 13px; border-radius: 50%; background: #fff; display: block; transition: transform .15s; }
+.cal__src-toggle.on span { transform: translateX(13px); }
+
 .cal__events { flex: 1; overflow-y: auto; padding: 4px 14px 18px; }
 .cal__daylabel { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--ink-4); padding: 14px 6px 7px; }
 .ev { display: flex; gap: 11px; padding: 10px; border-radius: var(--r-md); cursor: pointer; transition: background .12s; }
@@ -644,6 +656,15 @@
 .ev__rail { width: 3px; border-radius: 99px; flex-shrink: 0; background: var(--accent); }
 .ev__title { font-size: 13px; font-weight: 600; color: var(--ink); }
 .ev__time { font-size: 12px; color: var(--ink-3); margin-top: 2px; display: flex; align-items: center; gap: 5px; }
+/* Todo/task variants */
+.ev--todo { align-items: flex-start; }
+.ev__check { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; margin-top: 1px; border: 2px solid var(--ink-4); display: flex; align-items: center; justify-content: center; color: var(--accent); }
+.ev__check--lg { width: 18px; height: 18px; }
+.ev--todo.active .ev__check { border-color: var(--accent); }
+.cal__todos-section { margin-top: 4px; }
+.cal__daylabel--todos { color: var(--ink-3); }
+.evd__chip--task { gap: 8px; }
+.evd__title--done { text-decoration: line-through; color: var(--ink-3); }
 .cal__detail { flex: 1; min-width: 0; padding: 40px; overflow-y: auto; }
 .cal__detail-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--ink-4); }
 .evd__chip { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: 5px 11px; border-radius: 99px; }
@@ -727,8 +748,11 @@
 .cmdk__item.active { background: var(--accent-soft); }
 .cmdk__item-ic { color: var(--ink-3); display: grid; place-items: center; }
 .cmdk__item.active .cmdk__item-ic { color: var(--accent); }
-.cmdk__item-label { flex: 1; font-size: 13.5px; }
+.cmdk__item-label { flex: 1; font-size: 13.5px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .cmdk__item kbd { flex-shrink: 0; }
+.cmdk__res-primary { font-size: 13.5px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmdk__res-secondary { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmdk__res-date { font-size: 11.5px; color: var(--ink-4); flex-shrink: 0; }
 
 /* ============================================================================
    misc + animation (transform-only entrances — never gate visibility on opacity)

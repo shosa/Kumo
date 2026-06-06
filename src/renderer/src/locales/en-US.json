@@ -249,5 +249,9 @@
   "settings.updateAvailable": "Version {0} is available",
   "settings.upToDate": "Kumo is up to date",
   "settings.updateError": "Could not check for updates",
-  "update.skipVersion": "Don't notify me about this version"
+  "update.skipVersion": "Don't notify me about this version",
+  "calendar.hide": "Hide",
+  "calendar.show": "Show",
+  "calendar.reminders": "Reminders",
+  "calendar.hasEvents": "Has events"
 }

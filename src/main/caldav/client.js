@@ -53,9 +53,23 @@ function unfold(raw) {
   return raw.replace(/\r?\n[ \t]/g, '')
 }
 
+// Convert wall-clock time in a named IANA timezone to UTC milliseconds.
+// Uses the "fake-UTC mirror" trick: no dependencies required.
+function wallClockToUTC(year, month, day, hour, min, sec, tzid) {
+  const utcFake = Date.UTC(year, month - 1, day, hour, min, sec)
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tzid,
+    year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: 'numeric', minute: 'numeric', second: 'numeric',
+    hour12: false
+  }).formatToParts(new Date(utcFake))
+  const get = type => parseInt(parts.find(p => p.type === type)?.value || '0')
+  const tzFake = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second'))
+  return 2 * utcFake - tzFake
+}
+
 function parseICalDate(val, tzid) {
   if (!val) return null
-  // Formats: 19970714T173000Z, 19970714, 19970714T173000
   const allDay = /^\d{8}$/.test(val)
   if (allDay) {
     const y = parseInt(val.slice(0, 4))
@@ -63,86 +77,102 @@ function parseICalDate(val, tzid) {
     const d = parseInt(val.slice(6, 8))
     return { ts: new Date(Date.UTC(y, m, d)).getTime(), allDay: true }
   }
-  // Extract date/time parts
   const m = val.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/)
   if (m) {
-    const utc = m[7] === 'Z'
-    if (!utc && tzid) {
-      console.warn('[CAL] TZID not supported, treating as local time:', tzid)
+    const yr = parseInt(m[1]), mo = parseInt(m[2]), dy = parseInt(m[3])
+    const hr = parseInt(m[4]), mn = parseInt(m[5]), sc = parseInt(m[6])
+    if (m[7] === 'Z') {
+      return { ts: Date.UTC(yr, mo - 1, dy, hr, mn, sc), allDay: false }
     }
-    const d = new Date(
-      parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]),
-      parseInt(m[4]), parseInt(m[5]), parseInt(m[6])
-    )
-    const ts = utc ? Date.UTC(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]), parseInt(m[4]), parseInt(m[5]), parseInt(m[6])) : d.getTime()
-    return { ts, allDay: false }
+    if (tzid) {
+      try {
+        return { ts: wallClockToUTC(yr, mo, dy, hr, mn, sc, tzid), allDay: false }
+      } catch {
+        // Unknown TZID — fall through to local time
+      }
+    }
+    return { ts: new Date(yr, mo - 1, dy, hr, mn, sc).getTime(), allDay: false }
   }
   return null
 }
 
+function _parseProp(rawProp, val) {
+  const tzidMatch = rawProp.match(/TZID=([^;:]+)/i)
+  return parseICalDate(val.split(';').pop(), tzidMatch?.[1] || null)
+}
+
 export function parseICalEvents(icsData) {
   const unfolded = unfold(icsData)
-  const events = []
+  const items = []
 
-  const eventBlocks = unfolded.split(/BEGIN:VEVENT/i).slice(1)
-  for (const block of eventBlocks) {
-    const lines = block.split(/\r?\n/)
-    const event = {}
-
-    for (const line of lines) {
+  // ── VEVENT ──────────────────────────────────────────────────────────────────
+  for (const block of unfolded.split(/BEGIN:VEVENT/i).slice(1)) {
+    const ev = {}
+    for (const line of block.split(/\r?\n/)) {
       if (line.toUpperCase().startsWith('END:VEVENT')) break
-      const colonIdx = line.indexOf(':')
-      if (colonIdx < 0) continue
-      const rawProp = line.slice(0, colonIdx)
-      const val = line.slice(colonIdx + 1).replace(/\\n/g, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';')
+      const ci = line.indexOf(':')
+      if (ci < 0) continue
+      const rawProp = line.slice(0, ci)
+      const val = line.slice(ci + 1).replace(/\\n/g, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';')
       const prop = rawProp.split(';')[0].toUpperCase()
-
       switch (prop) {
-        case 'UID':         event.uid = val; break
-        case 'SUMMARY':     event.title = val; break
-        case 'DESCRIPTION': event.description = val; break
-        case 'LOCATION':    event.location = val; break
-        case 'STATUS':      event.status = val.toUpperCase(); break
-        case 'RRULE':       event.rrule = val; break
-        case 'ORGANIZER':   event.organizer = val.replace(/^MAILTO:/i, ''); break
-        case 'DTSTART': {
-          const tzidMatch = rawProp.match(/TZID=([^;:]+)/i)
-          const parsed = parseICalDate(val.split(';').pop(), tzidMatch?.[1] || null)
-          if (parsed) { event.start_ts = parsed.ts; event.all_day = parsed.allDay }
-          break
-        }
-        case 'DTEND': {
-          const tzidMatch = rawProp.match(/TZID=([^;:]+)/i)
-          const parsed = parseICalDate(val.split(';').pop(), tzidMatch?.[1] || null)
-          if (parsed) event.end_ts = parsed.ts
-          break
-        }
-        case 'ATTENDEE': {
-          if (!event.attendees) event.attendees = []
-          event.attendees.push(val.replace(/^MAILTO:/i, ''))
-          break
-        }
+        case 'UID':         ev.uid = val; break
+        case 'SUMMARY':     ev.title = val; break
+        case 'DESCRIPTION': ev.description = val; break
+        case 'LOCATION':    ev.location = val; break
+        case 'STATUS':      ev.status = val.toUpperCase(); break
+        case 'RRULE':       ev.rrule = val; break
+        case 'ORGANIZER':   ev.organizer = val.replace(/^MAILTO:/i, ''); break
+        case 'DTSTART': { const p = _parseProp(rawProp, val); if (p) { ev.start_ts = p.ts; ev.all_day = p.allDay } break }
+        case 'DTEND':   { const p = _parseProp(rawProp, val); if (p)   ev.end_ts = p.ts; break }
+        case 'ATTENDEE': { if (!ev.attendees) ev.attendees = []; ev.attendees.push(val.replace(/^MAILTO:/i, '')); break }
       }
     }
-
-    if (event.uid && event.title) {
-      events.push({
-        id: event.uid,
-        title: event.title || '',
-        description: event.description || null,
-        location: event.location || null,
-        start_ts: event.start_ts || 0,
-        end_ts: event.end_ts || event.start_ts || 0,
-        all_day: event.all_day || false,
-        rrule: event.rrule || null,
-        status: event.status || 'CONFIRMED',
-        organizer: event.organizer || null,
-        attendees: event.attendees || []
+    if (ev.uid && ev.title) {
+      items.push({
+        id: ev.uid, type: 'event',
+        title: ev.title, description: ev.description || null, location: ev.location || null,
+        start_ts: ev.start_ts || 0, end_ts: ev.end_ts || ev.start_ts || 0,
+        all_day: ev.all_day || false, rrule: ev.rrule || null,
+        status: ev.status || 'CONFIRMED', organizer: ev.organizer || null,
+        attendees: ev.attendees || []
       })
     }
   }
 
-  return events
+  // ── VTODO (Promemoria) ───────────────────────────────────────────────────────
+  for (const block of unfolded.split(/BEGIN:VTODO/i).slice(1)) {
+    const td = {}
+    for (const line of block.split(/\r?\n/)) {
+      if (line.toUpperCase().startsWith('END:VTODO')) break
+      const ci = line.indexOf(':')
+      if (ci < 0) continue
+      const rawProp = line.slice(0, ci)
+      const val = line.slice(ci + 1).replace(/\\n/g, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';')
+      const prop = rawProp.split(';')[0].toUpperCase()
+      switch (prop) {
+        case 'UID':         td.uid = val; break
+        case 'SUMMARY':     td.title = val; break
+        case 'DESCRIPTION': td.description = val; break
+        case 'STATUS':      td.status = val.toUpperCase(); break
+        case 'DTSTART': { const p = _parseProp(rawProp, val); if (p) { td.start_ts = p.ts; td.all_day = p.allDay } break }
+        case 'DUE':     { const p = _parseProp(rawProp, val); if (p) { td.end_ts = p.ts; td.due_allDay = p.allDay } break }
+      }
+    }
+    if (td.uid && td.title) {
+      const ts = td.start_ts || td.end_ts || 0
+      items.push({
+        id: td.uid, type: 'task',
+        title: td.title, description: td.description || null, location: null,
+        start_ts: ts, end_ts: td.end_ts || ts,
+        all_day: td.all_day ?? td.due_allDay ?? true,
+        rrule: null, status: td.status || 'NEEDS-ACTION',
+        organizer: null, attendees: []
+      })
+    }
+  }
+
+  return items
 }
 
 // ── XML helpers ───────────────────────────────────────────────────────────────
@@ -161,9 +191,25 @@ function extractAllMatches(xml, tag) {
   return matches
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function calendarNameFromHref(href) {
+  const slug = href.replace(/\/$/, '').split('/').pop() || ''
+  const KNOWN = { home: 'Casa', work: 'Lavoro', tasks: 'Promemoria', personal: 'Personale', family: 'Famiglia' }
+  return KNOWN[slug.toLowerCase()] || decodeURIComponent(slug).replace(/[_-]/g, ' ')
+}
+
+function calendarColorFromXml(xml) {
+  // Apple sends #RRGGBBAA — strip alpha
+  const raw = extractXmlProp(xml, 'calendar-color')
+  if (!raw) return null
+  const m = raw.trim().match(/^#([0-9a-f]{6})/i)
+  return m ? '#' + m[1] : null
+}
+
 // ── Discovery ─────────────────────────────────────────────────────────────────
 
-async function discoverCalendars(email, password) {
+export async function discoverCalendars(email, password) {
   const auth = { user: email, pass: password }
 
   const propfindBody = `<?xml version="1.0" encoding="UTF-8"?>
@@ -221,16 +267,31 @@ async function discoverCalendars(email, password) {
   </prop>
 </propfind>`)
 
+  // System collections that never contain user data
+  const SYSTEM_PATHS = ['/inbox/', '/outbox/', '/notification/']
+
   const responses = extractAllMatches(res.body, 'response')
   const calendars = []
   for (const r of responses) {
     if (r.includes('calendar') || r.includes('CALENDAR')) {
       const href = extractXmlProp(r, 'href')
-      const name = extractXmlProp(r, 'displayname') || 'Calendar'
-      if (href && !href.endsWith('calendars/')) {
-        const full = href.startsWith('http') ? href : new URL(href, calHomeFull).href
-        calendars.push({ href: full, name })
-      }
+      if (!href || href.endsWith('calendars/')) continue
+
+      // Skip known system collection paths
+      if (SYSTEM_PATHS.some(p => href.includes(p))) continue
+
+      const compSet = extractXmlProp(r, 'supported-calendar-component-set')
+      const supportsEvents = !compSet || compSet.includes('VEVENT')
+      const supportsTodos  = compSet?.includes('VTODO') || false
+
+      // Skip if neither events nor tasks are supported
+      if (compSet && !supportsEvents && !supportsTodos) continue
+
+      const full = href.startsWith('http') ? href : new URL(href, calHomeFull).href
+      const displayName = extractXmlProp(r, 'displayname')?.trim()
+      const name = displayName || calendarNameFromHref(full)
+      const color = calendarColorFromXml(r)
+      calendars.push({ href: full, name, color, supportsEvents, supportsTodos })
     }
   }
 
@@ -311,24 +372,61 @@ function _parseEventResponses(xmlBody) {
   return events
 }
 
-export async function syncCalendar(email, password) {
+async function fetchCalendarTodos(calUrl, auth) {
+  logCal(`Scarico promemoria da "${calUrl}"`)
+  const body = `<?xml version="1.0" encoding="UTF-8"?>
+<cal:calendar-query xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
+  <d:prop>
+    <d:getetag/>
+    <cal:calendar-data/>
+  </d:prop>
+  <cal:filter>
+    <cal:comp-filter name="VCALENDAR">
+      <cal:comp-filter name="VTODO"/>
+    </cal:comp-filter>
+  </cal:filter>
+</cal:calendar-query>`
+
+  const res = await followRedirects(calUrl, 'REPORT', auth, body, {
+    'Depth': '1',
+    'Content-Type': 'application/xml; charset=utf-8'
+  })
+
+  if (res.status >= 400) {
+    logCal(`REPORT VTODO fallito (${res.status}), skip`)
+    return []
+  }
+
+  const items = _parseEventResponses(res.body)
+  logCal(`REPORT VTODO: trovati ${items.length} promemoria`)
+  return items
+}
+
+export async function syncCalendar(email, password, enabledHrefs = null) {
   logCal(`Inizio sync calendario per ${email}`)
   const auth = { user: email, pass: password }
-  const calendars = await discoverCalendars(email, password)
-  logCal(`Trovati ${calendars.length} calendario/i: ${calendars.map(c => c.name).join(', ')}`)
-  const allEvents = []
+  const sources = await discoverCalendars(email, password)
+  logCal(`Trovati ${sources.length} calendario/i: ${sources.map(c => c.name).join(', ')}`)
+  const allItems = []
 
-  for (const cal of calendars) {
+  for (const cal of sources) {
+    // If caller specified which sources are enabled, skip others
+    if (enabledHrefs && !enabledHrefs.includes(cal.href)) continue
+
     try {
-      const events = await fetchCalendarEvents(cal.href, auth)
-      for (const ev of events) {
-        allEvents.push({ ...ev, calendar_id: cal.name })
+      if (cal.supportsEvents !== false) {
+        const events = await fetchCalendarEvents(cal.href, auth)
+        for (const ev of events) allItems.push({ ...ev, calendar_id: cal.name, calendar_href: cal.href })
+      }
+      if (cal.supportsTodos) {
+        const todos = await fetchCalendarTodos(cal.href, auth)
+        for (const td of todos) allItems.push({ ...td, calendar_id: cal.name, calendar_href: cal.href })
       }
     } catch (err) {
       logWarn(`CalDAV: errore calendario "${cal.name}": ${err.message}`)
     }
   }
 
-  logCal(`Sync calendario completato: ${allEvents.length} eventi totali`)
-  return allEvents
+  logCal(`Sync completato: ${allItems.filter(i => i.type !== 'task').length} eventi, ${allItems.filter(i => i.type === 'task').length} promemoria`)
+  return { items: allItems, sources }
 }

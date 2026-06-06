@@ -238,5 +238,9 @@
   "sidebar.lastSync": "Laatste synchronisatie om",
   "sidebar.notSynced": "Nog niet gesynchroniseerd",
   "settings.clearMessages": "Berichtendatabase wissen",
-  "settings.clearMessagesDesc": "Verwijdert alle lokale berichten — worden opnieuw gedownload bij volgende synchronisatie"
+  "settings.clearMessagesDesc": "Verwijdert alle lokale berichten — worden opnieuw gedownload bij volgende synchronisatie",
+  "calendar.hide": "Verbergen",
+  "calendar.show": "Weergeven",
+  "calendar.reminders": "Herinneringen",
+  "calendar.hasEvents": "Heeft evenementen"
 }
