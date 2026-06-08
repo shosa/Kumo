@@ -2,6 +2,7 @@ import initSqlJs from 'sql.js'
 import { app } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { logErr, logWarn } from '../logger.js'
 
 let db = null
 let SQL = null
@@ -116,49 +117,49 @@ export async function initDB() {
   try {
     _runMigrations(db)
   } catch (err) {
-    console.error('DB migration error (non-fatal):', err.message)
+    logErr('Database migration failed', { version: 1, fatal: false, error: err.message })
   }
 
   try {
     _migrate2(db)
   } catch (err) {
-    console.error('DB migration v2 error (non-fatal):', err.message)
+    logErr('Database migration failed', { version: 2, fatal: false, error: err.message })
   }
 
   try {
     _migrate3(db)
   } catch (err) {
-    console.error('DB migration v3 error (non-fatal):', err.message)
+    logErr('Database migration failed', { version: 3, fatal: false, error: err.message })
   }
 
   try {
     _migrate4(db)
   } catch (err) {
-    console.error('DB migration v4 error (non-fatal):', err.message)
+    logErr('Database migration failed', { version: 4, fatal: false, error: err.message })
   }
 
   try {
     _migrate5(db)
   } catch (err) {
-    console.error('DB migration v5 error (non-fatal):', err.message)
+    logErr('Database migration failed', { version: 5, fatal: false, error: err.message })
   }
 
   try {
     _migrate6(db)
   } catch (err) {
-    console.error('DB migration v6 error (non-fatal):', err.message)
+    logErr('Database migration failed', { version: 6, fatal: false, error: err.message })
   }
 
   try {
     _migrate7(db)
   } catch (err) {
-    console.error('DB migration v7 error (non-fatal):', err.message)
+    logErr('Database migration failed', { version: 7, fatal: false, error: err.message })
   }
 
   try {
     _migrate8(db)
   } catch (err) {
-    console.error('DB migration v8 error (non-fatal):', err.message)
+    logErr('Database migration failed', { version: 8, fatal: false, error: err.message })
   }
 
   persistDB()
@@ -310,7 +311,7 @@ function _runMigrations(d) {
       d.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('fts_seeded', '1')`)
     }
   } catch (err) {
-    console.warn('FTS5 not available or error:', err.message)
+    logWarn('FTS5 unavailable', { error: err.message })
   }
 
   // Mark migration as complete

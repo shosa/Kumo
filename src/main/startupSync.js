@@ -4,7 +4,7 @@ import { sendEmail } from './smtp/index.js'
 import { getCredentials } from './auth/index.js'
 
 // Startup sync: replay pending sync operations on app start
-export async function replayPendingSyncOperations(imapClients) {
+export async function replayPendingSyncOperations(imapClients, coordinator = null) {
   logSync('[StartupSync] Starting replay of pending sync operations...')
 
   // Clear operations that have failed too many times
@@ -20,11 +20,28 @@ export async function replayPendingSyncOperations(imapClients) {
 
   for (const op of pendingOperations) {
     try {
-      await processSyncOperation(op, imapClients)
+      if (coordinator && op.operation !== 'sendEmail') {
+        await coordinator.runQueuedOperation(op, () => processSyncOperation(op, imapClients))
+      } else {
+        await processSyncOperation(op, imapClients)
+      }
       markSyncOperationCompleted(op.id)
-      logSync(`[StartupSync] Completed ${op.operation} for ${op.target_type}`)
+      logSync('Startup sync completed operation', {
+        op: op.operation,
+        target: op.target_type,
+        id: op.id,
+        folder: op.folder,
+        uid: op.uid
+      })
     } catch (err) {
-      logErr(`[StartupSync] Failed ${op.operation} for ${op.target_type}: ${err.message}`)
+      logErr('Startup sync failed operation', {
+        op: op.operation,
+        target: op.target_type,
+        id: op.id,
+        folder: op.folder,
+        uid: op.uid,
+        error: err.message
+      })
       markSyncOperationFailed(op.id, err.message)
     }
   }

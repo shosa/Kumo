@@ -2,24 +2,12 @@ import React, { useState, useEffect, useRef } from 'react'
 import { locales } from '../i18n/index'
 import RichTextEditor from './RichTextEditor'
 import ContactPickerModal from './ContactPickerModal'
+import QuotedMessagePreview from './QuotedMessagePreview'
+import { useAppearance } from '../appearance'
+import { buildQuotedMessage, combineComposeHtml } from '../composeReply'
 import {
   IconClose, IconAttach, IconSend, IconContacts
 } from './Icons'
-
-function buildReplyBody(mode, msg, body) {
-  if (!msg) return ''
-  const fromLine = `From: ${msg.from_name || msg.from_email} &lt;${msg.from_email}&gt;`
-  const dateLine = `Date: ${new Date(msg.date).toLocaleString()}`
-  const subjectLine = `Subject: ${msg.subject}`
-  const toLine = `To: ${(msg.to_addresses || []).map(a => a.name || a.email).join(', ')}`
-  const original = body?.html
-    ? `<blockquote style="border-left:3px solid #d2d2d7;margin:12px 0 0 8px;padding-left:12px;color:#6e6e73">${body.html}</blockquote>`
-    : `<pre style="color:#6e6e73;font-size:13px">${body?.text || ''}</pre>`
-  if (mode === 'forward') {
-    return `<p></p><p>---------- Forwarded message ----------</p><p>${fromLine}<br>${dateLine}<br>${subjectLine}<br>${toLine}</p>${original}`
-  }
-  return `<p></p><p>On ${dateLine}, ${msg.from_name || msg.from_email} wrote:</p>${original}`
-}
 
 function buildReplySubject(mode, subject) {
   if (!subject) return mode === 'forward' ? 'Fwd: ' : 'Re: '
@@ -63,18 +51,18 @@ function formatAddresses(addresses) {
   return (addresses || []).map(a => a.name ? `${a.name} <${a.address}>` : a.address).join(', ')
 }
 
-function AddressChip({ address, onRemove }) {
+function AddressChip({ address, onRemove, removeLabel }) {
   return (
     <span className={`address-chip${!address.isValid ? ' address-chip--invalid' : ''}`}>
       <span className="address-chip__text">
         {address.name ? `${address.name} <${address.address}>` : address.address}
       </span>
-      <button className="address-chip__remove" onClick={onRemove} type="button" aria-label="Rimuovi">×</button>
+      <button className="address-chip__remove" onClick={onRemove} type="button" aria-label={removeLabel}>×</button>
     </span>
   )
 }
 
-function RecipientField({ label, addresses, onChange, placeholder, trailing, contacts }) {
+function RecipientField({ label, addresses, onChange, placeholder, trailing, contacts, removeLabel }) {
   const [suggestions, setSuggestions] = useState([])
   const [inputValue, setInputValue] = useState('')
   const [focused, setFocused] = useState(false)
@@ -135,7 +123,7 @@ function RecipientField({ label, addresses, onChange, placeholder, trailing, con
       <span className="compose-field__label">{label}</span>
       <div className="compose-field__chip-input">
         {addresses.map((addr, i) => (
-          <AddressChip key={i} address={addr} onRemove={() => onChange(addresses.filter((_, j) => j !== i))} />
+          <AddressChip key={i} address={addr} removeLabel={removeLabel} onRemove={() => onChange(addresses.filter((_, j) => j !== i))} />
         ))}
         <input
           className="compose-field__input"
@@ -210,7 +198,21 @@ export default function ComposeViewerApp({ composeData }) {
     })
   }, [])
 
+  useAppearance(settings)
+
   const [editorContent, setEditorContent] = useState('')
+  const locale = locales[settings.language] || locales['en-US']
+  const t = (key, ...args) => {
+    let text = (locale || locales['en-US'])[key] ?? locales['en-US'][key] ?? key
+    args.forEach((arg, index) => {
+      text = text.replace(`{${index}}`, String(arg))
+    })
+    return text
+  }
+  const quotedHtml = buildQuotedMessage(mode, msg, body || msg?.body, {
+    locale: settings.language,
+    translate: t
+  })
 
   // Quill configuration completa come Outlook
   const quillModules = {
@@ -234,12 +236,11 @@ export default function ComposeViewerApp({ composeData }) {
   }
 
   useEffect(() => {
-    const replyBody = buildReplyBody(mode, msg, body || msg?.body)
     const sig = settings.signature
       ? `<p></p><p>--</p><p>${settings.signature}</p>`
       : '<p></p>'
-    setEditorContent(sig + (mode !== 'new' ? replyBody : ''))
-  }, [mode, msg, body, settings.signature])
+    setEditorContent(sig)
+  }, [mode, msg, settings.signature])
 
   async function handleAttachFiles() {
     const result = await window.api.dialog.pickFiles()
@@ -256,7 +257,7 @@ export default function ComposeViewerApp({ composeData }) {
     if (!accountEmail) return
     clearTimeout(draftTimer.current)
     draftTimer.current = setTimeout(async () => {
-      const html = editorContent || ''
+      const html = combineComposeHtml(editorContent, quotedHtml)
       if (to.length === 0 && !subject && html === '<p></p>') return
       const draft = {
         id: draftId || undefined,
@@ -274,7 +275,7 @@ export default function ComposeViewerApp({ composeData }) {
       if (result.ok && result.id && !draftId) setDraftId(result.id)
     }, 2000)
     return () => clearTimeout(draftTimer.current)
-  }, [to, cc, bcc, subject, attachments, accountEmail, bodyVersion, draftId])
+  }, [to, cc, bcc, subject, attachments, accountEmail, bodyVersion, quotedHtml, draftId])
 
   async function handleSend() {
     if (to.length === 0) { setError('compose.error.noRecipient'); return }
@@ -282,8 +283,9 @@ export default function ComposeViewerApp({ composeData }) {
     setSending(true)
     setError(null)
 
-    const html = editorRef.current?.getHTML() || editorContent || ''
-    const text = editorContent.replace(/<[^>]*>/g, '') || ''
+    const editableHtml = editorRef.current?.getHTML() || editorContent || ''
+    const html = combineComposeHtml(editableHtml, quotedHtml)
+    const text = html.replace(/<[^>]*>/g, '') || ''
 
     const creds = await window.api.auth.getCredentials()
     if (!creds.ok || !creds.creds) {
@@ -316,7 +318,8 @@ export default function ComposeViewerApp({ composeData }) {
 
   async function handleSaveDraft() {
     if (!accountEmail) return
-    const html = editorRef.current?.getHTML() || editorContent || ''
+    const editableHtml = editorRef.current?.getHTML() || editorContent || ''
+    const html = combineComposeHtml(editableHtml, quotedHtml)
     const draft = {
       id: draftId || undefined,
       account_email: accountEmail,
@@ -370,9 +373,6 @@ export default function ComposeViewerApp({ composeData }) {
     setContextMenu(null)
   }
 
-  const locale = locales[settings.language] || locales['en-US']
-  const t = (key) => (locale || locales['en-US'])[key] ?? key
-
   const placeholderText = t('compose.placeholder')
 
   const windowTitle = (() => {
@@ -381,12 +381,6 @@ export default function ComposeViewerApp({ composeData }) {
     const suffix = mode === 'replyAll' ? ` ${t('compose.title.replyAll')}` : ''
     return `${prefix} ${msg?.subject || ''}${suffix}`
   })()
-
-  const theme = settings.theme || 'light'
-
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-  }, [theme])
 
   return (
     <div className="viewer-window" onClick={() => setContextMenu(null)}>
@@ -403,6 +397,7 @@ export default function ComposeViewerApp({ composeData }) {
             contacts={contacts}
             onAdd={handlePickerAdd}
             onClose={() => setShowPicker(false)}
+            t={t}
           />
         )}
         <div className="compose-window__fields">
@@ -412,6 +407,7 @@ export default function ComposeViewerApp({ composeData }) {
             onChange={setTo}
             placeholder={t('compose.recipientPlaceholder')}
             contacts={contacts}
+            removeLabel={t('action.remove')}
             trailing={
               <>
                 <button className="compose-field__icon-btn" onClick={() => setShowPicker(true)} title="Rubrica">
@@ -425,8 +421,8 @@ export default function ComposeViewerApp({ composeData }) {
           />
           {showCcBcc && (
             <>
-              <RecipientField label={t('compose.cc')} addresses={cc} onChange={setCc} placeholder={t('compose.ccPlaceholder')} contacts={contacts} />
-              <RecipientField label={t('compose.bcc')} addresses={bcc} onChange={setBcc} placeholder={t('compose.bccPlaceholder')} contacts={contacts} />
+              <RecipientField label={t('compose.cc')} addresses={cc} onChange={setCc} placeholder={t('compose.ccPlaceholder')} contacts={contacts} removeLabel={t('action.remove')} />
+              <RecipientField label={t('compose.bcc')} addresses={bcc} onChange={setBcc} placeholder={t('compose.bccPlaceholder')} contacts={contacts} removeLabel={t('action.remove')} />
             </>
           )}
           <div className="compose-field">
@@ -465,6 +461,7 @@ export default function ComposeViewerApp({ composeData }) {
               modules={quillModules}
               placeholder={placeholderText}
             />
+            <QuotedMessagePreview html={quotedHtml} title={t('compose.quote.original')} />
           </div>
         </div>
 
@@ -510,7 +507,7 @@ export default function ComposeViewerApp({ composeData }) {
             position: 'fixed',
             left: contextMenu.x,
             top: contextMenu.y,
-            zIndex: 1000
+            zIndex: 9999
           }}
           onClick={(e) => e.stopPropagation()}
         >

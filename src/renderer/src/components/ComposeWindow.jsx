@@ -3,27 +3,11 @@ import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
 import RichTextEditor from './RichTextEditor'
 import ContactPickerModal from './ContactPickerModal'
+import QuotedMessagePreview from './QuotedMessagePreview'
+import { buildQuotedMessage, combineComposeHtml } from '../composeReply'
 import {
   IconClose, IconAttach, IconSend, IconContacts
 } from './Icons'
-
-function buildReplyBody(mode, msg, body) {
-  if (!msg) return ''
-  const fromLine = `From: ${msg.from_name || msg.from_email} &lt;${msg.from_email}&gt;`
-  const dateLine = `Date: ${new Date(msg.date).toLocaleString()}`
-  const subjectLine = `Subject: ${msg.subject}`
-  const toLine = `To: ${(msg.to_addresses || []).map(a => a.name || a.email).join(', ')}`
-
-  const original = body?.html
-    ? `<blockquote style="border-left:3px solid #d2d2d7;margin:12px 0 0 8px;padding-left:12px;color:#6e6e73">${body.html}</blockquote>`
-    : `<pre style="color:#6e6e73;font-size:13px">${body?.text || ''}</pre>`
-
-  if (mode === 'forward') {
-    return `<p></p><p>---------- Forwarded message ----------</p><p>${fromLine}<br>${dateLine}<br>${subjectLine}<br>${toLine}</p>${original}`
-  }
-
-  return `<p></p><p>On ${dateLine}, ${msg.from_name || msg.from_email} wrote:</p>${original}`
-}
 
 function buildReplySubject(mode, subject) {
   if (!subject) return mode === 'forward' ? 'Fwd: ' : 'Re: '
@@ -282,6 +266,10 @@ export default function ComposeWindow() {
   }
 
   const [editorContent, setEditorContent] = useState('')
+  const quotedHtml = buildQuotedMessage(mode, msg, msg?.body, {
+    locale: state.settings.language,
+    translate: t
+  })
 
   // Quill configuration completa come Outlook
   const quillModules = {
@@ -305,11 +293,10 @@ export default function ComposeWindow() {
   }
 
   useEffect(() => {
-    const replyBody = buildReplyBody(mode, msg, msg?.body)
     const sig = state.settings.signature
       ? `<p></p><p>--</p><p>${state.settings.signature}</p>`
       : '<p></p>'
-    setEditorContent(sig + (mode !== 'new' ? replyBody : ''))
+    setEditorContent(sig)
   }, [mode, msg, state.settings.signature])
 
   useEffect(() => {
@@ -337,7 +324,7 @@ export default function ComposeWindow() {
     if (!state.auth.email) return
     clearTimeout(draftTimer.current)
     draftTimer.current = setTimeout(async () => {
-      const html = editorContent || ''
+      const html = combineComposeHtml(editorContent, quotedHtml)
       if (to.length === 0 && !subject && html === '<p></p>') return
 
       // Convert address arrays to strings for draft storage
@@ -361,7 +348,7 @@ export default function ComposeWindow() {
       if (result.ok && result.id && !draftId) setDraftId(result.id)
     }, 2000)
     return () => clearTimeout(draftTimer.current)
-  }, [to, cc, bcc, subject, attachments, bodyVersion, draftId])
+  }, [to, cc, bcc, subject, attachments, bodyVersion, quotedHtml, draftId])
 
   function handleContextMenu(e) {
     e.preventDefault()
@@ -416,8 +403,9 @@ export default function ComposeWindow() {
     setSending(true)
     setError(null)
 
-    const html = editorRef.current?.getHTML() || editorContent || ''
-    const text = editorContent.replace(/<[^>]*>/g, '') || ''
+    const editableHtml = editorRef.current?.getHTML() || editorContent || ''
+    const html = combineComposeHtml(editableHtml, quotedHtml)
+    const text = html.replace(/<[^>]*>/g, '') || ''
 
     const creds = await window.api.auth.getCredentials()
     if (!creds.ok || !creds.creds) {
@@ -472,7 +460,8 @@ export default function ComposeWindow() {
   }
 
   async function handleSaveDraft() {
-    const html = editorRef.current?.getHTML() || editorContent || ''
+    const editableHtml = editorRef.current?.getHTML() || editorContent || ''
+    const html = combineComposeHtml(editableHtml, quotedHtml)
 
     // Convert address arrays to strings for draft storage
     const formatAddresses = (addresses) => addresses.map(addr =>
@@ -515,6 +504,7 @@ export default function ComposeWindow() {
             contacts={contactsWithEmail}
             onAdd={handlePickerAdd}
             onClose={() => setShowPicker(false)}
+            t={t}
           />
         )}
 
@@ -605,6 +595,7 @@ export default function ComposeWindow() {
               placeholder={t('compose.placeholder')}
               modules={quillModules}
             />
+            <QuotedMessagePreview html={quotedHtml} title={t('compose.quote.original')} />
           </div>
         </div>
 
@@ -680,7 +671,7 @@ export default function ComposeWindow() {
             position: 'fixed',
             left: contextMenu.x,
             top: contextMenu.y,
-            zIndex: 1000
+            zIndex: 9999
           }}
           onClick={(e) => e.stopPropagation()}
         >

@@ -85,7 +85,7 @@ function EmailBodyContextMenu({ isVisible, position, selectedText, selectedLink,
         position: 'fixed',
         left: Math.max(10, adjustedPosition.x),
         top: Math.max(10, adjustedPosition.y),
-        zIndex: 1000
+        zIndex: 9999
       }}
     >
       {selectedText && (
@@ -637,7 +637,7 @@ export default function ReadingPane() {
                 <div className="attach__name">{att.filename || att.name}</div>
                 <div className="attach__size">{formatSize(att.size)}</div>
               </div>
-              <button className="icon-btn" title="Scarica" onClick={ev => { ev.stopPropagation(); handleSaveAttachment(att, i) }}>
+              <button className="icon-btn" title={t('update.download')} onClick={ev => { ev.stopPropagation(); handleSaveAttachment(att, i) }}>
                 <IconDownload size={15} />
               </button>
             </div>

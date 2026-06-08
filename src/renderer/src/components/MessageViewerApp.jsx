@@ -4,6 +4,7 @@ import {
   IconTrash, IconNoSymbol, IconClose, IconAttach, IconDownload
 } from './Icons'
 import { locales } from '../i18n/index'
+import { useAppearance } from '../appearance'
 
 const AVATAR_COLORS = ['#0071e3','#5e5ebc','#bf5af2','#ff6b35','#30d158','#ffd60a','#ff453a','#64d2ff']
 
@@ -148,7 +149,7 @@ function EmailBodyContextMenu({ isVisible, position, selectedText, selectedLink,
         position: 'fixed',
         left: Math.max(10, adjustedPosition.x),
         top: Math.max(10, adjustedPosition.y),
-        zIndex: 1000
+        zIndex: 9999
       }}
     >
       {selectedText && (
@@ -206,6 +207,8 @@ export default function MessageViewerApp({ message }) {
     })
   }, [])
 
+  useAppearance(settings)
+
   useEffect(() => {
     if (!message) return
     setBodyLoading(true)
@@ -235,12 +238,12 @@ export default function MessageViewerApp({ message }) {
     return () => window.removeEventListener('message', handleIframeMessage)
   }, [])
 
-  if (!message) {
-    return <div className={`app-root theme-light`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)' }}>No message data</div>
-  }
-
   const locale = locales[settings.language] || locales['en-US']
   const t = (key) => (locale || locales['en-US'])[key] ?? key
+
+  if (!message) {
+    return <div className={`app-root theme-light`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)' }}>{t('reading.noMessage')}</div>
+  }
 
   const isRead    = flags.includes('\\Seen')
   const isStarred = flags.includes('\\Flagged')
@@ -375,13 +378,6 @@ export default function MessageViewerApp({ message }) {
     }
     setContextMenu({ ...contextMenu, isVisible: false })
   }
-
-  const theme = settings.theme || 'light'
-
-  // Apply data-theme on documentElement (new theming mechanism)
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
-  }, [theme])
 
   return (
     <div className="viewer-window">

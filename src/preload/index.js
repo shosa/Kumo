@@ -157,7 +157,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // ── Push events (main → renderer) ───────────────────────────────────────────
   on: (channel, callback) => {
-    const allowed = ['imap:new-mail', 'imap:connection-status', 'imap:sync-complete', 'imap:flags-updated', 'open-compose', 'imap:notification-click', 'updater:status', 'sync:operation-start', 'sync:operation-end', 'sync:operation-failed', 'sync:rollback']
+    const allowed = ['imap:new-mail', 'imap:connection-status', 'imap:sync-complete', 'imap:flags-updated', 'open-compose', 'imap:notification-click', 'updater:status', 'sync:operation-start', 'sync:operation-end', 'sync:operation-failed', 'sync:operation-update', 'sync:rollback']
     if (!allowed.includes(channel)) return
     const sub = (_event, ...args) => callback(...args)
     ipcRenderer.on(channel, sub)

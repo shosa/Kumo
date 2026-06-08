@@ -150,6 +150,36 @@
   color: var(--text-secondary);
 }
 
+.context-menu__item--submenu > span:nth-child(2) {
+  flex: 1;
+}
+
+.context-menu__chevron {
+  margin-left: auto;
+  color: var(--text-tertiary);
+}
+
+.context-menu__item:hover .context-menu__chevron {
+  color: white;
+}
+
+.context-menu--sub {
+  z-index: 10001;
+  min-width: 190px;
+  max-width: 280px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.context-menu--sub-left {
+  transform-origin: top right;
+}
+
+.context-menu--sub-right {
+  transform-origin: top left;
+}
+
 /* ── Prototype component styles ── */
 
 /* ============================================================================
@@ -820,18 +850,44 @@
 .viewer__date { font-size: 12px; color: var(--ink-3); white-space: nowrap; flex-shrink: 0; }
 .viewer__body { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
 
-/* — Email context menu (inside iframe popups) — */
+/* Email/compose context menus: aligned with the main liquid-glass menu. */
 .email-context-menu {
-  background: var(--surface); border: 1px solid var(--line-strong);
-  border-radius: var(--r-md); box-shadow: var(--shadow-pop); padding: 4px; min-width: 120px;
+  position: fixed;
+  z-index: 9999;
+  min-width: 180px;
+  background: var(--bg-layer1);
+  border: 1px solid var(--glass-border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.35), var(--glass-inner-glow);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  padding: var(--sp-1);
+  animation: scaleIn 120ms var(--ease-spring);
+  transform-origin: top left;
+  user-select: none;
 }
+
 .email-context-menu__item {
-  display: block; width: 100%; padding: 8px 12px; text-align: left;
-  background: transparent; border: none; border-radius: var(--r-sm);
-  font-size: 12px; color: var(--ink); cursor: pointer; font-family: var(--sans);
-  transition: background .12s;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-default), color var(--duration-fast) var(--ease-default);
 }
-.email-context-menu__item:hover { background: var(--accent); color: #fff; }
+
+.email-context-menu__item:hover {
+  background: var(--accent);
+  color: white;
+}
 
 /* — Compose window standalone (ComposeViewerApp) — */
 .compose-window--standalone {
@@ -1009,6 +1065,21 @@
 .compose-editor .ql-editor { flex: 1; overflow-y: auto; padding: 14px 18px; font-size: 14px; font-family: var(--sans); color: var(--ink); outline: none; }
 .compose-editor .ql-editor:focus { outline: none; }
 .compose-editor .ql-editor.ql-blank::before { color: var(--ink-4); font-style: normal; }
+.compose-quoted-message {
+  flex-shrink: 0;
+  max-height: 45vh;
+  overflow: auto;
+  margin: 0 18px 16px;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--line);
+}
+.compose-quoted-message iframe {
+  display: block;
+  width: 100%;
+  min-height: 80px;
+  border: 0;
+  background: transparent;
+}
 
 .compose-attachments {
   display: flex; flex-wrap: wrap; gap: 8px;

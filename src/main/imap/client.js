@@ -100,7 +100,7 @@ export class ImapClient extends EventEmitter {
   // ── Connection ────────────────────────────────────────────────────────────
 
   async connect() {
-    logInfo(`Connessione IMAP per ${this.email}…`)
+    logInfo('IMAP connecting', { account: this.email })
     this.emit('connection-status', 'connecting')
     this.client = makeClient(this.email, this.password)
 
@@ -112,12 +112,11 @@ export class ImapClient extends EventEmitter {
     await this.client.connect()
     this.connected = true
     this.reconnectDelay = 5000
-    logInfo(`IMAP connesso — ${this.email}`)
-    this.emit('connection-status', 'connected')
-
+    logInfo('IMAP connected', { account: this.email })
     await this._syncFolders()
     await this._syncFolder('INBOX', true)
     await this._startIdle()
+    this.emit('connection-status', 'connected')
   }
 
   async disconnect() {
@@ -143,7 +142,11 @@ export class ImapClient extends EventEmitter {
       try {
         await this.connect()
       } catch (err) {
-        console.error('Reconnect failed:', err.message)
+        logErr('IMAP reconnect failed', {
+          account: this.email,
+          delayMs: this.reconnectDelay,
+          error: err.message
+        })
         this.reconnectDelay = Math.min(this.reconnectDelay * 2, 60000)
         this._scheduleReconnect()
       }
@@ -160,7 +163,12 @@ export class ImapClient extends EventEmitter {
       this.idleClient.on('exists', async (data) => {
         const { count, prevCount } = data
         if (count > prevCount) {
-          await this._fetchNewMessages(this.idleFolder, prevCount, count).catch(console.error)
+          await this._fetchNewMessages(this.idleFolder, prevCount, count).catch(err => {
+            logErr('IMAP IDLE new-message fetch failed', {
+              folder: this.idleFolder,
+              error: err.message
+            })
+          })
         }
       })
 
@@ -168,12 +176,22 @@ export class ImapClient extends EventEmitter {
         // Debounce multiple rapid expunges into a single reconciliation sync
         clearTimeout(this._expungeTimer)
         this._expungeTimer = setTimeout(async () => {
-          await this._syncFolder(this.idleFolder, true).catch(console.error)
+          await this._syncFolder(this.idleFolder, true).catch(err => {
+            logErr('IMAP expunge reconciliation failed', {
+              folder: this.idleFolder,
+              error: err.message
+            })
+          })
         }, 800)
       })
 
       this.idleClient.on('flags', async (data) => {
-        await this._syncFolderCounts(this.idleFolder).catch(console.error)
+        await this._syncFolderCounts(this.idleFolder).catch(err => {
+          logWarn('IMAP IDLE folder-count refresh failed', {
+            folder: this.idleFolder,
+            error: err.message
+          })
+        })
         // Update specific message flags if the event carries uid/flags info
         if (data?.uid) {
           const flags = data.flags
@@ -187,7 +205,12 @@ export class ImapClient extends EventEmitter {
       })
 
       this.idleClient.on('error', (err) => {
-        if (this.connected) console.error('IDLE client error:', err.message)
+        if (this.connected) {
+          logWarn('IMAP IDLE client error', {
+            folder: this.idleFolder,
+            error: err.message
+          })
+        }
       })
 
       const lock = await this.idleClient.getMailboxLock(this.idleFolder)
@@ -199,7 +222,10 @@ export class ImapClient extends EventEmitter {
             await this.idleClient.idle()
           } catch (err) {
             if (!this.connected) break
-            console.error('IDLE loop error:', err.message)
+            logWarn('IMAP IDLE loop interrupted', {
+              folder: this.idleFolder,
+              error: err.message
+            })
             await new Promise(r => setTimeout(r, 5000))
             if (!this.connected || !this.idleClient?.usable) break
           }
@@ -208,9 +234,18 @@ export class ImapClient extends EventEmitter {
         this._idleLock = null
         if (this.connected) this._scheduleReconnect()
       }
-      keepIdling().catch(console.error)
+      keepIdling().catch(err => {
+        logErr('IMAP IDLE loop failed', {
+          folder: this.idleFolder,
+          error: err.message
+        })
+      })
     } catch (err) {
-      console.error('Failed to start IDLE:', err.message)
+      logWarn('IMAP IDLE unavailable; switching to polling', {
+        folder: this.idleFolder,
+        intervalMs: 120000,
+        error: err.message
+      })
       this.syncTimer = setInterval(() => this.syncInbox(), 120000)
     }
   }
@@ -310,7 +345,7 @@ export class ImapClient extends EventEmitter {
         this.emit('unread-count', status.unseen || 0)
       }
     } catch (err) {
-      console.warn(`Could not get status for ${folder}:`, err.message)
+      logWarn('Could not refresh folder status', { folder, error: err.message })
     } finally {
       lock.release()
     }
@@ -323,20 +358,24 @@ export class ImapClient extends EventEmitter {
     if (this._syncInFlight.has(folder)) return this._syncInFlight.get(folder)
     const p = this._doSyncFolder(folder, background)
     this._syncInFlight.set(folder, p)
-    p.finally(() => this._syncInFlight.delete(folder))
+    p.then(
+      () => this._syncInFlight.delete(folder),
+      () => this._syncInFlight.delete(folder)
+    )
     return p
   }
 
   async _doSyncFolder(folder, background = false) {
     if (!this.client) return
-    logSync(`Inizio sync cartella "${folder}"`)
+    const syncStartedAt = Date.now()
+    logSync('Folder sync started', { folder })
     const lock = await this.client.getMailboxLock(folder)
     try {
       const status = await this.client.status(folder, { messages: true, unseen: true })
       const total  = status.messages || 0
       const unseen = status.unseen  || 0
       updateFolderCounts(folder, unseen, total)
-      logSync(`"${folder}": ${total} email totali, ${unseen} non lette`)
+      logSync('Folder status fetched', { folder, total, unread: unseen })
 
       // Always fetch the full UID set from server — this is the source of truth
       const serverUids   = total > 0 ? await this.client.search({ all: true }, { uid: true }) : []
@@ -348,7 +387,7 @@ export class ImapClient extends EventEmitter {
       const orphans = localUids.filter(uid => !serverUidSet.has(uid))
       if (orphans.length) {
         removeMessages(orphans, folder)
-        logDelete(`"${folder}": rimosse ${orphans.length} email eliminate dal server`)
+        logDelete('Removed local messages missing on server', { folder, removed: orphans.length })
       }
 
       // 2. Fetch envelopes for messages not yet cached locally
@@ -359,16 +398,16 @@ export class ImapClient extends EventEmitter {
       let   maxUid   = serverUids.length > 0 ? serverUids[serverUids.length - 1] : 0
 
       if (toFetch.length) {
-        logMail(`"${folder}": scarico ${toFetch.length} email nuove…`)
+        logMail('Fetching new message envelopes', { folder, count: toFetch.length })
         for await (const msg of this.client.fetch(toFetch, {
           envelope: true, flags: true, bodyStructure: true, size: true
         }, { uid: true })) {
           this._persistEnvelope(msg, folder)
           newCount++
         }
-        logMail(`"${folder}": scaricate ${newCount} email`)
+        logMail('Fetched new message envelopes', { folder, count: newCount })
       } else {
-        logSync(`"${folder}": nessuna email nuova`)
+        logSync('No new messages', { folder })
       }
 
       // 3. Sync flags for existing messages — catches read/starred changes from other devices
@@ -381,12 +420,19 @@ export class ImapClient extends EventEmitter {
           updateMessageFlags(folder, msg.uid, [...(msg.flags || [])])
           flagUpdates++
         }
-        logSync(`"${folder}": aggiornati flag su ${flagUpdates} email`)
+        logSync('Message flags refreshed', { folder, count: flagUpdates })
       }
 
       if (maxUid > 0) upsertSyncState(this.email, folder, maxUid, total)
       this._lastSyncTime.set(folder, Date.now())
-      logSync(`"${folder}": sync completato (nuove: ${newCount}, rimosse: ${orphans.length})`)
+      logSync('Folder sync completed', {
+        folder,
+        newMessages: newCount,
+        removed: orphans.length,
+        total,
+        unread: unseen,
+        durationMs: Date.now() - syncStartedAt
+      })
       this.emit('sync-complete', { folder, newCount, removedCount: orphans.length })
     } finally {
       lock.release()

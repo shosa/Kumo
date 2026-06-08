@@ -5,6 +5,15 @@ import { BrowserWindow } from 'electron'
 // Sync queue operations for offline-first architecture
 // Maintains a persistent ordered queue of pending IMAP/SMTP operations
 
+function getMainWindow() {
+  return BrowserWindow.getAllWindows().find(win => !win.isDestroyed())
+}
+
+export function emitSyncOperationUpdate(update) {
+  const mainWindow = getMainWindow()
+  if (mainWindow) mainWindow.webContents.send('sync:operation-update', update)
+}
+
 export function enqueueSyncOperation(operation, targetType, data, options = {}) {
   const d = getDB()
   const {
@@ -27,10 +36,25 @@ export function enqueueSyncOperation(operation, targetType, data, options = {}) 
     uid || null
   ])
 
-  logSync(`[SyncQueue] Enqueued ${operation} for ${targetType}`)
+  logSync('Sync operation queued', {
+    op: operation,
+    target: targetType,
+    folder,
+    uid,
+    account: accountEmail
+  })
+  emitSyncOperationUpdate({
+    operation,
+    targetType,
+    folder: folder || null,
+    uid: uid || null,
+    account: accountEmail || null,
+    status: 'queued',
+    retryCount: 0
+  })
 
   // Notify renderer that a sync operation started
-  const mainWindow = BrowserWindow.getAllWindows().find(win => !win.isDestroyed())
+  const mainWindow = getMainWindow()
   if (mainWindow) {
     mainWindow.webContents.send('sync:operation-start')
   }
@@ -61,9 +85,10 @@ export function dequeuePendingOperations() {
 export function markSyncOperationCompleted(id) {
   const d = getDB()
   d.run(`DELETE FROM sync_queue WHERE id = ?`, [id])
+  emitSyncOperationUpdate({ id, status: 'completed' })
 
   // Notify renderer that a sync operation completed
-  const mainWindow = BrowserWindow.getAllWindows().find(win => !win.isDestroyed())
+  const mainWindow = getMainWindow()
   if (mainWindow) {
     mainWindow.webContents.send('sync:operation-end')
   }
@@ -82,7 +107,16 @@ export function markSyncOperationFailed(id, error) {
   const newRetryCount = (op.retry_count || 0) + 1
 
   if (newRetryCount >= 5) {
-    const mainWindow = BrowserWindow.getAllWindows().find(w => !w.isDestroyed())
+    const mainWindow = getMainWindow()
+    emitSyncOperationUpdate({
+      id,
+      operation: op.operation,
+      uid: op.uid,
+      folder: op.folder,
+      status: 'failed',
+      retryCount: newRetryCount,
+      error
+    })
     if (mainWindow) {
       mainWindow.webContents.send('sync:operation-failed', {
         operation: op.operation,
@@ -93,7 +127,13 @@ export function markSyncOperationFailed(id, error) {
       mainWindow.webContents.send('sync:operation-end')
     }
     d.run(`DELETE FROM sync_queue WHERE id = ?`, [id])
-    logErr(`[SyncQueue] Dead-lettered ${op.operation} after ${newRetryCount} retries: ${error}`)
+    logErr('Sync operation dead-lettered', {
+      op: op.operation,
+      folder: op.folder,
+      uid: op.uid,
+      retry: newRetryCount,
+      error
+    })
     return
   }
 
@@ -103,7 +143,24 @@ export function markSyncOperationFailed(id, error) {
     SET retry_count = ?, last_error = ?, next_retry_at = ?
     WHERE id = ?
   `, [newRetryCount, error, nextRetryAt, id])
-  logErr(`[SyncQueue] Failed ${op.operation} (retry ${newRetryCount}), next attempt in ${Math.round((nextRetryAt - Date.now()) / 1000)}s`)
+  emitSyncOperationUpdate({
+    id,
+    operation: op.operation,
+    uid: op.uid,
+    folder: op.folder,
+    status: 'retrying',
+    retryCount: newRetryCount,
+    error,
+    nextRetryAt
+  })
+  logErr('Sync operation scheduled for retry', {
+    op: op.operation,
+    folder: op.folder,
+    uid: op.uid,
+    retry: newRetryCount,
+    nextInSec: Math.round((nextRetryAt - Date.now()) / 1000),
+    error
+  })
 }
 
 export function clearFailedOperations() {

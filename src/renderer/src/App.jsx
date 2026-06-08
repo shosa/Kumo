@@ -12,6 +12,7 @@ import Settings from './components/Settings'
 import TitleBar from './components/TitleBar'
 import UpdateBanner from './components/UpdateBanner'
 import CommandPalette from './components/CommandPalette'
+import { useAppearance } from './appearance'
 
 const MSGLIST_MIN = 220
 const MSGLIST_MAX = 480
@@ -111,13 +112,7 @@ export default function App() {
     window.api.window.setBadge(total)
   }, [state.folders.list])
 
-  // Theme — apply via data-theme on documentElement
-  useEffect(() => {
-    const resolved = state.settings.theme === 'system'
-      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-      : (state.settings.theme || 'light')
-    document.documentElement.setAttribute('data-theme', resolved)
-  }, [state.settings.theme])
+  useAppearance(state.settings)
 
   // Density vars on :root
   useEffect(() => {
@@ -132,23 +127,6 @@ export default function App() {
       r.style.setProperty('--list-fs', '13px')
     }
   }, [state.settings.displayDensity])
-
-  // Accent color on :root
-  useEffect(() => {
-    if (state.settings.accentColor) {
-      document.documentElement.style.setProperty('--accent', state.settings.accentColor)
-    }
-  }, [state.settings.accentColor])
-
-  // System theme sync
-  useEffect(() => {
-    if (state.settings.theme !== 'system') return
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const apply = e => document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light')
-    apply(mq)
-    mq.addEventListener('change', apply)
-    return () => mq.removeEventListener('change', apply)
-  }, [state.settings.theme])
 
   // IPC listeners
   useEffect(() => {

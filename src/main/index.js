@@ -13,10 +13,11 @@ import {
 } from './store/db.js'
 import { saveCredentials, getCredentials, deleteCredentials, listStoredEmails } from './auth/index.js'
 import { ImapClient } from './imap/client.js'
+import { ImapOperationCoordinator } from './imap/operationCoordinator.js'
 import { sendEmail } from './smtp/index.js'
 import { syncContacts, dumpRawContacts } from './carddav/client.js'
 import { syncCalendar } from './caldav/client.js'
-import { logContact, logErr } from './logger.js'
+import { initLogger, logContact, logDebug, logErr, logSync } from './logger.js'
 import { initUpdater } from './updater.js'
 import { replayPendingSyncOperations } from './startupSync.js'
 import { enqueueSyncOperation, updateMessageOptimistic, rollbackOptimisticUpdate } from './syncQueue.js'
@@ -35,6 +36,7 @@ app.setAppUserModelId('Kumo')
 
 let mainWindow = null
 let tray = null
+const imapCoordinator = new ImapOperationCoordinator()
 const imapClients = new Map()   // email → ImapClient
 const unreadCounts = new Map()  // email → number
 const viewerDataStore = new Map()
@@ -317,6 +319,7 @@ function _attachClientEvents(email, client) {
     mainWindow?.webContents.send('imap:new-mail', { subject, from, folder, uid, account: email })
   })
   client.on('connection-status', (status) => {
+    imapCoordinator.setConnectionStatus(status)
     mainWindow?.webContents.send('imap:connection-status', { status, account: email })
   })
   client.on('unread-count', (count) => {
@@ -334,6 +337,52 @@ function _attachClientEvents(email, client) {
 function getClient(email) {
   if (email) return imapClients.get(email) || null
   return imapClients.values().next().value || null
+}
+
+imapCoordinator.on('operation-update', update => {
+  mainWindow?.webContents.send('sync:operation-update', update)
+  logImapOperationUpdate(update)
+})
+
+function runImapOperation(operation, folder, uid, fn) {
+  return imapCoordinator.runDirect({ operation, folder, uid }, fn)
+}
+
+function enqueueImapOperation(operation, targetType, data, options) {
+  enqueueSyncOperation(operation, targetType, data, options)
+  queueMicrotask(() => {
+    flushSyncQueue(imapClients, imapCoordinator).catch(err => {
+      logErr('Immediate sync queue flush failed', {
+        op: operation,
+        folder: options?.folder,
+        uid: options?.uid,
+        error: err.message
+      })
+    })
+  })
+}
+
+function logImapOperationUpdate(update) {
+  const context = {
+    source: update.source,
+    op: update.operation,
+    id: update.id,
+    folder: update.folder,
+    uid: update.uid,
+    retry: update.retryCount,
+    waitMs: update.waitMs,
+    durationMs: update.durationMs,
+    transient: update.transient
+  }
+  const readOnly = new Set(['getFolders', 'fetchMessages', 'fetchBody', 'search', 'downloadAttachment'])
+  const log = readOnly.has(update.operation) ? logDebug : logSync
+  if (update.status === 'running') {
+    log('IMAP operation started', context)
+  } else if (update.status === 'completed') {
+    log('IMAP operation completed', context)
+  } else if (update.status === 'failed') {
+    logErr('IMAP operation failed', { ...context, error: update.error })
+  }
 }
 
 // ── Auth IPC ──────────────────────────────────────────────────────────────────
@@ -378,6 +427,7 @@ ipcMain.handle('imap:connect', async (_e, email, password) => {
     await client.connect()
     return { ok: true }
   } catch (err) {
+    imapCoordinator.setConnectionStatus('disconnected')
     imapClients.delete(email)
     return { ok: false, error: err.message }
   }
@@ -406,7 +456,7 @@ ipcMain.handle('imap:get-folders', async (_e, email) => {
   const imapClient = getClient(email)
   if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    const folders = await imapClient.getFolders()
+    const folders = await runImapOperation('getFolders', null, null, () => imapClient.getFolders())
     return { ok: true, folders }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -417,7 +467,12 @@ ipcMain.handle('imap:fetch-messages', async (_e, folder, page, pageSize, email) 
   const imapClient = getClient(email)
   if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    const result = await imapClient.fetchMessages(folder, page || 1, pageSize || 50)
+    const result = await runImapOperation(
+      'fetchMessages',
+      folder,
+      null,
+      () => imapClient.fetchMessages(folder, page || 1, pageSize || 50)
+    )
     return { ok: true, ...result }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -428,7 +483,7 @@ ipcMain.handle('imap:fetch-body', async (_e, folder, uid, email) => {
   const imapClient = getClient(email)
   if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    const body = await imapClient.fetchBody(folder, uid)
+    const body = await runImapOperation('fetchBody', folder, uid, () => imapClient.fetchBody(folder, uid))
     return { ok: true, body }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -440,7 +495,7 @@ ipcMain.handle('imap:mark-read', async (_e, folder, uid, read, email) => {
     const flags = read ? ['\\Seen'] : []
     updateMessageOptimistic(folder, uid, { flags }, { immediate: true })
     recalcFolderUnread(folder)
-    enqueueSyncOperation('setFlags', 'message',
+    enqueueImapOperation('setFlags', 'message',
       { flag: '\\Seen', add: read },
       { accountEmail: email, folder, uid }
     )
@@ -454,7 +509,7 @@ ipcMain.handle('imap:star-message', async (_e, folder, uid, starred, email) => {
   try {
     toggleMessageFlag(folder, uid, '\\Flagged', starred)
     persistDBImmediate()
-    enqueueSyncOperation('setFlags', 'message',
+    enqueueImapOperation('setFlags', 'message',
       { flag: '\\Flagged', add: starred },
       { accountEmail: email, folder, uid }
     )
@@ -468,7 +523,7 @@ ipcMain.handle('imap:move-message', async (_e, folder, uid, destination, email) 
   try {
     removeMessages([uid], folder)
     persistDBImmediate()
-    enqueueSyncOperation('moveMessage', 'message',
+    enqueueImapOperation('moveMessage', 'message',
       { destination },
       { accountEmail: email, folder, uid }
     )
@@ -482,7 +537,7 @@ ipcMain.handle('imap:delete-message', async (_e, folder, uid, permanent, email) 
   try {
     removeMessages([uid], folder)
     persistDBImmediate()
-    enqueueSyncOperation('deleteMessage', 'message',
+    enqueueImapOperation('deleteMessage', 'message',
       { permanent },
       { accountEmail: email, folder, uid }
     )
@@ -496,7 +551,7 @@ ipcMain.handle('imap:mark-junk', async (_e, folder, uid, isJunk, email) => {
   try {
     removeMessages([uid], folder)
     persistDBImmediate()
-    enqueueSyncOperation('markJunk', 'message',
+    enqueueImapOperation('markJunk', 'message',
       { isJunk },
       { accountEmail: email, folder, uid }
     )
@@ -510,7 +565,7 @@ ipcMain.handle('imap:search', async (_e, folder, query, email) => {
   const imapClient = getClient(email)
   if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    const results = await imapClient.search(folder, query)
+    const results = await runImapOperation('search', folder, null, () => imapClient.search(folder, query))
     return { ok: true, results }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -521,7 +576,7 @@ ipcMain.handle('imap:sync-inbox', async (_e, email) => {
   const imapClient = getClient(email)
   if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    await imapClient.syncInbox()
+    await runImapOperation('syncInbox', 'INBOX', null, () => imapClient.syncInbox())
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -532,7 +587,7 @@ ipcMain.handle('imap:sync-folder', async (_e, folder, email) => {
   const imapClient = getClient(email)
   if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    await imapClient._syncFolder(folder, false)
+    await runImapOperation('syncFolder', folder, null, () => imapClient._syncFolder(folder, false))
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -543,7 +598,7 @@ ipcMain.handle('imap:mark-all-read', async (_e, folder, email) => {
   const imapClient = getClient(email)
   if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    await imapClient.markAllRead(folder)
+    await runImapOperation('markAllRead', folder, null, () => imapClient.markAllRead(folder))
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -554,7 +609,7 @@ ipcMain.handle('imap:empty-folder', async (_e, folder, email) => {
   const imapClient = getClient(email)
   if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    await imapClient.emptyFolder(folder)
+    await runImapOperation('emptyFolder', folder, null, () => imapClient.emptyFolder(folder))
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -566,7 +621,7 @@ ipcMain.handle('imap:bulk-set-flag', async (_e, folder, uids, flag, add, email) 
     for (const uid of uids) toggleMessageFlag(folder, uid, flag, add)
     if (flag === '\\Seen') recalcFolderUnread(folder)
     persistDBImmediate()
-    enqueueSyncOperation('bulkSetFlags', 'message',
+    enqueueImapOperation('bulkSetFlags', 'message',
       { uids, flag, add },
       { accountEmail: email, folder }
     )
@@ -580,7 +635,7 @@ ipcMain.handle('imap:bulk-delete', async (_e, folder, uids, email) => {
   try {
     removeMessages(uids, folder)
     persistDBImmediate()
-    enqueueSyncOperation('bulkDelete', 'message',
+    enqueueImapOperation('bulkDelete', 'message',
       { uids },
       { accountEmail: email, folder }
     )
@@ -594,7 +649,7 @@ ipcMain.handle('imap:bulk-move', async (_e, folder, uids, destination, email) =>
   try {
     removeMessages(uids, folder)
     persistDBImmediate()
-    enqueueSyncOperation('bulkMove', 'message',
+    enqueueImapOperation('bulkMove', 'message',
       { uids, destination },
       { accountEmail: email, folder }
     )
@@ -1108,7 +1163,12 @@ ipcMain.handle('imap:download-attachment', async (_e, folder, uid, partId, filen
     // Return cached file immediately without hitting IMAP
     if (existsSync(dest)) return { ok: true, filePath: dest }
 
-    const { downloaded, filePath } = await client.downloadAttachment(folder, uid, partId, dest)
+    const { downloaded, filePath } = await runImapOperation(
+      'downloadAttachment',
+      folder,
+      uid,
+      () => client.downloadAttachment(folder, uid, partId, dest)
+    )
     if (downloaded) {
       const metas = getAttachmentsMeta(uid, folder)
       const meta = metas.find(m => m.part_id === partId && m.filename === filename)
@@ -1145,7 +1205,7 @@ async function confirmAndQuit() {
       detail: 'Vuoi sincronizzarle prima di chiudere?'
     })
     if (response === 0) {
-      await flushSyncQueue(imapClients).catch(() => {})
+      await flushSyncQueue(imapClients, imapCoordinator).catch(() => {})
       tray = null
       app.quit()
     } else if (response === 1) {
@@ -1199,6 +1259,7 @@ app.whenReady().then(async () => {
     }
   })
 
+  initLogger(join(app.getPath('userData'), 'logs', 'kumo.log'))
   await initDB()
   createWindow()
   createTray()
@@ -1208,7 +1269,7 @@ app.whenReady().then(async () => {
   try {
     storedEmails = await listStoredEmails()
   } catch (err) {
-    console.error('Could not load stored accounts:', err.message)
+    logErr('Could not load stored account', { error: err.message })
   }
   for (const email of storedEmails) {
     const creds = await getCredentials(email)
@@ -1217,17 +1278,21 @@ app.whenReady().then(async () => {
     _attachClientEvents(creds.email, client)
     imapClients.set(creds.email, client)
     client.connect().catch(err => {
-      console.error(`Auto-connect failed for ${creds.email}:`, err.message)
+      imapCoordinator.setConnectionStatus('disconnected')
+      logErr('IMAP auto-connect failed', {
+        account: creds.email,
+        error: err.message
+      })
       imapClients.delete(creds.email)
     })
   }
 
   // Replay pending sync operations, then start the background runner
   setTimeout(() => {
-    replayPendingSyncOperations(imapClients).catch(err => {
-      console.error('Startup sync failed:', err.message)
+    replayPendingSyncOperations(imapClients, imapCoordinator).catch(err => {
+      logErr('Startup sync failed', { error: err.message })
     }).finally(() => {
-      startSyncRunner(imapClients)
+      startSyncRunner(imapClients, imapCoordinator)
     })
   }, 2000) // Wait 2 seconds for IMAP connections to establish
 })

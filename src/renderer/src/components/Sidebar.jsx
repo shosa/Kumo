@@ -3,19 +3,10 @@ import { createPortal } from 'react-dom'
 import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
 import {
-  IconInbox, IconSent, IconDrafts, IconTrash, IconJunk,
-  IconArchive, IconFolder, IconCompose, IconSettings, IconRefresh,
+  IconCompose, IconSettings, IconRefresh,
   IconSignOut, IconMarkRead, IconNoSymbol, IconEdit
 } from './Icons'
-
-const FOLDER_ICON_MAP = {
-  '\\Inbox':   IconInbox,
-  '\\Sent':    IconSent,
-  '\\Drafts':  IconDrafts,
-  '\\Trash':   IconTrash,
-  '\\Junk':    IconJunk,
-  '\\Archive': IconArchive
-}
+import { getFolderIcon } from './folderIcons'
 
 const FOLDER_LABEL_KEY = {
   '\\Inbox':   'folder.inbox',
@@ -379,7 +370,7 @@ export default function Sidebar() {
 }
 
 function FolderItem({ folder, selected, dragOver, onClick, onContextMenu, onDragOver, onDragLeave, onDrop, t }) {
-  const IconComp = FOLDER_ICON_MAP[folder.special_use] || IconFolder
+  const IconComp = getFolderIcon(folder)
   const labelKey = FOLDER_LABEL_KEY[folder.special_use]
   const name = labelKey ? t(labelKey) : (folder.name || folder.path.split('/').pop())
   const isInbox = folder.special_use === '\\Inbox'

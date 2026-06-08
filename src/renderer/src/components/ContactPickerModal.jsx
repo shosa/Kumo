@@ -22,7 +22,7 @@ function initials(name, email) {
   return [...(email || '?')].slice(0, 2).join('').toUpperCase()
 }
 
-export default function ContactPickerModal({ contacts, onAdd, onClose, showCcBcc }) {
+export default function ContactPickerModal({ contacts, onAdd, onClose, t }) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState(new Set())
   const searchRef = useRef(null)
@@ -78,7 +78,7 @@ export default function ContactPickerModal({ contacts, onAdd, onClose, showCcBcc
             <input
               ref={searchRef}
               className="contact-picker__search"
-              placeholder="Cerca contatti…"
+              placeholder={t('contacts.search')}
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
@@ -101,13 +101,13 @@ export default function ContactPickerModal({ contacts, onAdd, onClose, showCcBcc
               checked={selected.size > 0 && selected.size === filtered.length}
               ref={el => { if (el) el.indeterminate = selected.size > 0 && selected.size < filtered.length }}
             />
-            <span>{selected.size > 0 ? `${selected.size} selezionati` : 'Seleziona tutti'}</span>
+            <span>{selected.size > 0 ? t('multiselect.count', selected.size) : t('action.selectAll')}</span>
           </div>
         )}
 
         <div className="contact-picker__list">
           {filtered.length === 0 ? (
-            <div className="contact-picker__empty">Nessun contatto trovato</div>
+            <div className="contact-picker__empty">{t('contacts.noResults')}</div>
           ) : filtered.map(c => {
             const id = c.id || c.email
             const isSelected = selected.has(id)
@@ -131,10 +131,10 @@ export default function ContactPickerModal({ contacts, onAdd, onClose, showCcBcc
         </div>
 
         <div className="contact-picker__footer">
-          <span className="contact-picker__footer-label">Aggiungi a:</span>
-          <button className="btn btn--ghost contact-picker__add-btn" disabled={!hasSelection} onClick={() => addTo('to')}>A</button>
-          <button className="btn btn--ghost contact-picker__add-btn" disabled={!hasSelection} onClick={() => addTo('cc')}>CC</button>
-          <button className="btn btn--ghost contact-picker__add-btn" disabled={!hasSelection} onClick={() => addTo('bcc')}>CCN</button>
+          <span className="contact-picker__footer-label">{t('contacts.addTo')}</span>
+          <button className="btn btn--ghost contact-picker__add-btn" disabled={!hasSelection} onClick={() => addTo('to')}>{t('compose.to')}</button>
+          <button className="btn btn--ghost contact-picker__add-btn" disabled={!hasSelection} onClick={() => addTo('cc')}>{t('compose.cc')}</button>
+          <button className="btn btn--ghost contact-picker__add-btn" disabled={!hasSelection} onClick={() => addTo('bcc')}>{t('compose.bcc')}</button>
         </div>
       </div>
     </div>
