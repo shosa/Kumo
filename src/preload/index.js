@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('imap:disconnect'),
     getFolders: () =>
       ipcRenderer.invoke('imap:get-folders'),
+    syncFolders: () =>
+      ipcRenderer.invoke('imap:sync-folders'),
     fetchMessages: (folder, page, pageSize) =>
       ipcRenderer.invoke('imap:fetch-messages', folder, page, pageSize),
     fetchBody: (folder, uid) =>
@@ -30,6 +32,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('imap:star-message', folder, uid, starred, email),
     moveMessage: (folder, uid, destination, email) =>
       ipcRenderer.invoke('imap:move-message', folder, uid, destination, email),
+    archiveMessage: (folder, uid, email) =>
+      ipcRenderer.invoke('imap:archive-message', folder, uid, email),
     deleteMessage: (folder, uid, permanent, email) =>
       ipcRenderer.invoke('imap:delete-message', folder, uid, permanent, email),
     markJunk: (folder, uid, isJunk, email) =>
@@ -157,7 +161,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // ── Push events (main → renderer) ───────────────────────────────────────────
   on: (channel, callback) => {
-    const allowed = ['imap:new-mail', 'imap:connection-status', 'imap:sync-complete', 'imap:flags-updated', 'open-compose', 'imap:notification-click', 'updater:status', 'sync:operation-start', 'sync:operation-end', 'sync:operation-failed', 'sync:operation-update', 'sync:rollback']
+    const allowed = ['imap:new-mail', 'imap:connection-status', 'imap:sync-complete', 'imap:flags-updated', 'open-compose', 'imap:notification-click', 'store:folders-changed', 'updater:status', 'sync:operation-start', 'sync:operation-end', 'sync:operation-failed', 'sync:operation-update', 'sync:rollback']
     if (!allowed.includes(channel)) return
     const sub = (_event, ...args) => callback(...args)
     ipcRenderer.on(channel, sub)

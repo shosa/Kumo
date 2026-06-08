@@ -7,6 +7,7 @@ import {
   IconSignOut, IconMarkRead, IconNoSymbol, IconEdit
 } from './Icons'
 import { getFolderIcon } from './folderIcons'
+import { animateMessageRemoval } from '../motion'
 
 const FOLDER_LABEL_KEY = {
   '\\Inbox':   'folder.inbox',
@@ -142,19 +143,11 @@ export default function Sidebar() {
   const [isSyncing, setIsSyncing] = useState(false)
   const [pendingOps, setPendingOps] = useState(0)
 
-  const tRef = useRef(t)
-  useEffect(() => { tRef.current = t }, [t])
-
   const loadFolders = useCallback(async () => {
-    dispatch({ type: 'SET_FOLDERS_LOADING', payload: true })
-    dispatch({ type: 'SET_LOADING', payload: tRef.current('loading.folders') })
     const result = await window.api.imap.getFolders()
     if (result.ok) {
       dispatch({ type: 'SET_FOLDERS', payload: result.folders })
-    } else {
-      dispatch({ type: 'SET_FOLDERS_LOADING', payload: false })
     }
-    dispatch({ type: 'CLEAR_LOADING' })
   }, [dispatch])
 
   // Load from cache immediately when authenticated
@@ -167,10 +160,13 @@ export default function Sidebar() {
     })
   }, [state.auth.isAuthenticated, dispatch])
 
-  // Refresh from IMAP when connection is established
+  // Refresh only the remote folder structure; message counts update per-folder.
   useEffect(() => {
-    if (state.connectionStatus === 'connected') loadFolders()
-  }, [state.connectionStatus, loadFolders])
+    if (state.connectionStatus !== 'connected') return
+    window.api.imap.syncFolders().then(result => {
+      if (result.ok) dispatch({ type: 'SET_FOLDERS', payload: result.folders })
+    })
+  }, [state.connectionStatus, dispatch])
 
   useEffect(() => {
     function refresh() {
@@ -245,8 +241,8 @@ export default function Sidebar() {
       ;(byFolder[m.folder] = byFolder[m.folder] || []).push(m.uid)
     })
     Object.entries(byFolder).forEach(([srcFolder, uids]) => {
-      uids.forEach(uid => dispatch({ type: 'REMOVE_MESSAGE', payload: { uid, folder: srcFolder } }))
-      window.api.imap.bulkMove(srcFolder, uids, targetFolder.path)
+      animateMessageRemoval(dispatch, uids.map(uid => ({ uid, folder: srcFolder })))
+      window.api.imap.bulkMove(srcFolder, uids, targetFolder.path, state.auth.email)
     })
   }
 
@@ -391,7 +387,7 @@ function FolderItem({ folder, selected, dragOver, onClick, onContextMenu, onDrag
       <span className="folder__icon"><IconComp size={17} /></span>
       <span className="folder__name">{name}</span>
       {folder.unread_count > 0 && (
-        <span className={`folder__count${isInbox ? ' badge' : ''}`}>
+        <span key={folder.unread_count} className={`folder__count${isInbox ? ' badge' : ''}`}>
           {folder.unread_count > 99 ? '99+' : folder.unread_count}
         </span>
       )}

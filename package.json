@@ -4,6 +4,7 @@
   "description": "iCloud Mail desktop client for Windows",
   "main": "out/main/index.js",
   "scripts": {
+    "test": "node --test",
     "dev": "electron-vite dev",
     "build": "electron-vite build && electron-builder",
     "build:unpack": "electron-vite build && electron-builder --dir",

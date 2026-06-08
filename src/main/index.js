@@ -2,26 +2,36 @@ import { app, BrowserWindow, ipcMain, Tray, Menu, Notification, nativeImage, she
 import { join, dirname, resolve, sep } from 'path'
 import {
   initDB, closeDB, searchMessages, getSettings, saveSetting,
-  getFolders, clearBodyCache, clearFolderCache, clearMessages, getDbPath, resetAllData,
+  getFolders, getMessages, getMessageCount,
+  clearBodyCache, clearFolderCache, clearMessages, getDbPath, resetAllData,
   getDrafts, upsertDraft, deleteDraft,
   getSyncState,
   getAttachmentsMeta, markAttachmentDownloaded,
   upsertContact, getContacts, searchContacts, deleteContacts,
   upsertEvent, getEvents, deleteEvents,
   upsertCalendarSource, getCalendarSources, setCalendarSourceEnabled,
-  removeMessages, toggleMessageFlag, persistDBImmediate, recalcFolderUnread, getSyncQueueCount
+  getAttachmentSnapshots, getMessageSnapshots, moveMessagesOptimistic, removeMessages,
+  persistDBImmediate, recalcFolderUnread, getSyncQueueCount
 } from './store/db.js'
 import { saveCredentials, getCredentials, deleteCredentials, listStoredEmails } from './auth/index.js'
 import { ImapClient } from './imap/client.js'
 import { ImapOperationCoordinator } from './imap/operationCoordinator.js'
+import { applyFlagChange, parseStoredFlags } from './messageFlags.js'
 import { sendEmail } from './smtp/index.js'
 import { syncContacts, dumpRawContacts } from './carddav/client.js'
 import { syncCalendar } from './caldav/client.js'
 import { initLogger, logContact, logDebug, logErr, logSync } from './logger.js'
 import { initUpdater } from './updater.js'
 import { replayPendingSyncOperations } from './startupSync.js'
-import { enqueueSyncOperation, updateMessageOptimistic, rollbackOptimisticUpdate } from './syncQueue.js'
+import {
+  addToOutbox,
+  enqueueSyncOperation,
+  markOutboxEmailFailed,
+  updateMessageOptimistic
+} from './syncQueue.js'
 import { startSyncRunner, stopSyncRunner, flushSyncQueue } from './syncRunner.js'
+import { APP_NAME, WINDOWS_APP_ID } from './appIdentity.js'
+import { createNotificationAvatarBitmap } from './notificationAvatar.js'
 
 // In dev mode, isolate data from the production install
 if (process.env.ELECTRON_RENDERER_URL) {
@@ -32,7 +42,8 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'kumo-local', privileges: { secure: true, stream: true, bypassCSP: true } }
 ])
 
-app.setAppUserModelId('Kumo')
+app.setName(APP_NAME)
+app.setAppUserModelId(WINDOWS_APP_ID)
 
 let mainWindow = null
 let tray = null
@@ -249,37 +260,9 @@ function updateTaskbarBadge(count) {
 }
 
 function _makeAvatarIcon(from) {
-  const seed = from || '?'
-  let hash = 5381
-  for (let i = 0; i < seed.length; i++) hash = (hash * 33 ^ seed.charCodeAt(i)) & 0xffffffff
-  const h = (Math.abs(hash) % 360) / 360
-  const s = 0.60, l = 0.45
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s
-  const p = 2 * l - q
-  const hue2rgb = t => {
-    if (t < 0) t += 1; if (t > 1) t -= 1
-    if (t < 1/6) return p + (q-p)*6*t
-    if (t < 1/2) return q
-    if (t < 2/3) return p + (q-p)*(2/3-t)*6
-    return p
-  }
-  const r = Math.round(hue2rgb(h+1/3)*255)
-  const g = Math.round(hue2rgb(h)*255)
-  const b = Math.round(hue2rgb(h-1/3)*255)
   const size = 64
-  const buf = Buffer.alloc(size * size * 4)
-  const cx = size/2-0.5, cy = size/2-0.5, radius = size/2-2
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const dist = Math.sqrt((x-cx)**2+(y-cy)**2)
-      const alpha = Math.max(0, Math.min(1, radius+1-dist))*255
-      if (alpha > 0) {
-        const idx = (y*size+x)*4
-        buf[idx]=r; buf[idx+1]=g; buf[idx+2]=b; buf[idx+3]=Math.round(alpha)
-      }
-    }
-  }
-  return nativeImage.createFromBuffer(buf, { width: size, height: size })
+  const { buffer } = createNotificationAvatarBitmap(from, size)
+  return nativeImage.createFromBuffer(buffer, { width: size, height: size })
 }
 
 function showNewMailNotification(subject, from, folder, uid) {
@@ -294,7 +277,7 @@ function showNewMailNotification(subject, from, folder, uid) {
   try {
     const icon = _makeAvatarIcon(from)
     const n = new Notification({
-      title: from || 'Kumo',
+      title: from || APP_NAME,
       body: subject || '(No subject)',
       icon,
       silent: false
@@ -339,6 +322,18 @@ function getClient(email) {
   return imapClients.values().next().value || null
 }
 
+function getOperationAccountEmail(email) {
+  return email || imapClients.keys().next().value || null
+}
+
+function getSnapshotFlags(snapshot) {
+  return parseStoredFlags(snapshot?.flags)
+}
+
+function emitCachedFoldersChanged() {
+  mainWindow?.webContents.send('store:folders-changed', getFolders())
+}
+
 imapCoordinator.on('operation-update', update => {
   mainWindow?.webContents.send('sync:operation-update', update)
   logImapOperationUpdate(update)
@@ -374,7 +369,7 @@ function logImapOperationUpdate(update) {
     durationMs: update.durationMs,
     transient: update.transient
   }
-  const readOnly = new Set(['getFolders', 'fetchMessages', 'fetchBody', 'search', 'downloadAttachment'])
+  const readOnly = new Set(['getFolders', 'syncFolders', 'fetchBody', 'search', 'downloadAttachment'])
   const log = readOnly.has(update.operation) ? logDebug : logSync
   if (update.status === 'running') {
     log('IMAP operation started', context)
@@ -453,27 +448,40 @@ ipcMain.handle('imap:disconnect', async (_e, email) => {
 })
 
 ipcMain.handle('imap:get-folders', async (_e, email) => {
-  const imapClient = getClient(email)
-  if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    const folders = await runImapOperation('getFolders', null, null, () => imapClient.getFolders())
+    const folders = getFolders()
     return { ok: true, folders }
   } catch (err) {
     return { ok: false, error: err.message }
   }
 })
 
-ipcMain.handle('imap:fetch-messages', async (_e, folder, page, pageSize, email) => {
+ipcMain.handle('imap:sync-folders', async (_e, email) => {
   const imapClient = getClient(email)
   if (!imapClient) return { ok: false, error: 'Not connected' }
   try {
-    const result = await runImapOperation(
-      'fetchMessages',
-      folder,
-      null,
-      () => imapClient.fetchMessages(folder, page || 1, pageSize || 50)
-    )
-    return { ok: true, ...result }
+    await runImapOperation('syncFolders', null, null, () => imapClient._syncFolders())
+    return { ok: true, folders: getFolders() }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('imap:fetch-messages', async (_e, folder, page, pageSize, email) => {
+  try {
+    const currentPage = page || 1
+    const currentPageSize = pageSize || 50
+    const offset = (currentPage - 1) * currentPageSize
+    const total = getMessageCount(folder)
+    const messages = getMessages(folder, currentPageSize, offset)
+    return {
+      ok: true,
+      messages,
+      total,
+      page: currentPage,
+      pageSize: currentPageSize,
+      hasMore: offset + messages.length < total
+    }
   } catch (err) {
     return { ok: false, error: err.message }
   }
@@ -492,12 +500,14 @@ ipcMain.handle('imap:fetch-body', async (_e, folder, uid, email) => {
 
 ipcMain.handle('imap:mark-read', async (_e, folder, uid, read, email) => {
   try {
-    const flags = read ? ['\\Seen'] : []
+    const snapshot = getMessageSnapshots(folder, [uid])[0]
+    const originalFlags = getSnapshotFlags(snapshot)
+    const flags = applyFlagChange(originalFlags, '\\Seen', read)
     updateMessageOptimistic(folder, uid, { flags }, { immediate: true })
     recalcFolderUnread(folder)
     enqueueImapOperation('setFlags', 'message',
-      { flag: '\\Seen', add: read },
-      { accountEmail: email, folder, uid }
+      { flag: '\\Seen', add: read, originalFlags },
+      { accountEmail: getOperationAccountEmail(email), folder, uid }
     )
     return { ok: true }
   } catch (err) {
@@ -507,11 +517,13 @@ ipcMain.handle('imap:mark-read', async (_e, folder, uid, read, email) => {
 
 ipcMain.handle('imap:star-message', async (_e, folder, uid, starred, email) => {
   try {
-    toggleMessageFlag(folder, uid, '\\Flagged', starred)
-    persistDBImmediate()
+    const snapshot = getMessageSnapshots(folder, [uid])[0]
+    const originalFlags = getSnapshotFlags(snapshot)
+    const flags = applyFlagChange(originalFlags, '\\Flagged', starred)
+    updateMessageOptimistic(folder, uid, { flags }, { immediate: true })
     enqueueImapOperation('setFlags', 'message',
-      { flag: '\\Flagged', add: starred },
-      { accountEmail: email, folder, uid }
+      { flag: '\\Flagged', add: starred, originalFlags },
+      { accountEmail: getOperationAccountEmail(email), folder, uid }
     )
     return { ok: true }
   } catch (err) {
@@ -521,13 +533,36 @@ ipcMain.handle('imap:star-message', async (_e, folder, uid, starred, email) => {
 
 ipcMain.handle('imap:move-message', async (_e, folder, uid, destination, email) => {
   try {
-    removeMessages([uid], folder)
-    persistDBImmediate()
-    enqueueImapOperation('moveMessage', 'message',
-      { destination },
-      { accountEmail: email, folder, uid }
+    const { originalMessages, originalAttachments, optimisticMessages } = moveMessagesOptimistic(
+      folder,
+      [uid],
+      destination
     )
-    return { ok: true }
+    emitCachedFoldersChanged()
+    enqueueImapOperation('moveMessage', 'message',
+      { destination, originalMessages, originalAttachments, optimisticMessages },
+      { accountEmail: getOperationAccountEmail(email), folder, uid }
+    )
+    return { ok: true, destination }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('imap:archive-message', async (_e, folder, uid, email) => {
+  try {
+    const archiveFolder = getFolders().find(item => item.special_use === '\\Archive')?.path || 'Archive'
+    const { originalMessages, originalAttachments, optimisticMessages } = moveMessagesOptimistic(
+      folder,
+      [uid],
+      archiveFolder
+    )
+    emitCachedFoldersChanged()
+    enqueueImapOperation('moveMessage', 'message',
+      { destination: archiveFolder, originalMessages, originalAttachments, optimisticMessages },
+      { accountEmail: getOperationAccountEmail(email), folder, uid }
+    )
+    return { ok: true, destination: archiveFolder }
   } catch (err) {
     return { ok: false, error: err.message }
   }
@@ -535,13 +570,31 @@ ipcMain.handle('imap:move-message', async (_e, folder, uid, destination, email) 
 
 ipcMain.handle('imap:delete-message', async (_e, folder, uid, permanent, email) => {
   try {
-    removeMessages([uid], folder)
-    persistDBImmediate()
+    const trashFolder = getFolders().find(item => item.special_use === '\\Trash')?.path || 'Deleted Messages'
+    const shouldMove = !permanent && folder !== trashFolder
+    const localChange = shouldMove
+      ? moveMessagesOptimistic(folder, [uid], trashFolder)
+      : {
+          originalMessages: getMessageSnapshots(folder, [uid]),
+          originalAttachments: getAttachmentSnapshots(folder, [uid]),
+          optimisticMessages: []
+        }
+    if (!shouldMove) {
+      removeMessages([uid], folder)
+      persistDBImmediate()
+    }
+    emitCachedFoldersChanged()
     enqueueImapOperation('deleteMessage', 'message',
-      { permanent },
-      { accountEmail: email, folder, uid }
+      {
+        permanent,
+        destination: shouldMove ? trashFolder : null,
+        originalMessages: localChange.originalMessages,
+        originalAttachments: localChange.originalAttachments,
+        optimisticMessages: localChange.optimisticMessages
+      },
+      { accountEmail: getOperationAccountEmail(email), folder, uid }
     )
-    return { ok: true }
+    return { ok: true, destination: shouldMove ? trashFolder : null }
   } catch (err) {
     return { ok: false, error: err.message }
   }
@@ -549,13 +602,20 @@ ipcMain.handle('imap:delete-message', async (_e, folder, uid, permanent, email) 
 
 ipcMain.handle('imap:mark-junk', async (_e, folder, uid, isJunk, email) => {
   try {
-    removeMessages([uid], folder)
-    persistDBImmediate()
-    enqueueImapOperation('markJunk', 'message',
-      { isJunk },
-      { accountEmail: email, folder, uid }
+    const destination = isJunk
+      ? getFolders().find(item => item.special_use === '\\Junk')?.path || 'Junk'
+      : 'INBOX'
+    const { originalMessages, originalAttachments, optimisticMessages } = moveMessagesOptimistic(
+      folder,
+      [uid],
+      destination
     )
-    return { ok: true }
+    emitCachedFoldersChanged()
+    enqueueImapOperation('markJunk', 'message',
+      { isJunk, destination, originalMessages, originalAttachments, optimisticMessages },
+      { accountEmail: getOperationAccountEmail(email), folder, uid }
+    )
+    return { ok: true, destination }
   } catch (err) {
     return { ok: false, error: err.message }
   }
@@ -618,12 +678,23 @@ ipcMain.handle('imap:empty-folder', async (_e, folder, email) => {
 
 ipcMain.handle('imap:bulk-set-flag', async (_e, folder, uids, flag, add, email) => {
   try {
-    for (const uid of uids) toggleMessageFlag(folder, uid, flag, add)
+    const snapshots = getMessageSnapshots(folder, uids)
+    const originalFlags = snapshots.map(snapshot => ({
+      uid: snapshot.uid,
+      flags: getSnapshotFlags(snapshot)
+    }))
+    for (const original of originalFlags) {
+      updateMessageOptimistic(
+        folder,
+        original.uid,
+        { flags: applyFlagChange(original.flags, flag, add) }
+      )
+    }
     if (flag === '\\Seen') recalcFolderUnread(folder)
     persistDBImmediate()
     enqueueImapOperation('bulkSetFlags', 'message',
-      { uids, flag, add },
-      { accountEmail: email, folder }
+      { uids, flag, add, originalFlags },
+      { accountEmail: getOperationAccountEmail(email), folder }
     )
     return { ok: true }
   } catch (err) {
@@ -633,13 +704,31 @@ ipcMain.handle('imap:bulk-set-flag', async (_e, folder, uids, flag, add, email) 
 
 ipcMain.handle('imap:bulk-delete', async (_e, folder, uids, email) => {
   try {
-    removeMessages(uids, folder)
-    persistDBImmediate()
+    const trashFolder = getFolders().find(item => item.special_use === '\\Trash')?.path || 'Deleted Messages'
+    const shouldMove = folder !== trashFolder
+    const localChange = shouldMove
+      ? moveMessagesOptimistic(folder, uids, trashFolder)
+      : {
+          originalMessages: getMessageSnapshots(folder, uids),
+          originalAttachments: getAttachmentSnapshots(folder, uids),
+          optimisticMessages: []
+        }
+    if (!shouldMove) {
+      removeMessages(uids, folder)
+      persistDBImmediate()
+    }
+    emitCachedFoldersChanged()
     enqueueImapOperation('bulkDelete', 'message',
-      { uids },
-      { accountEmail: email, folder }
+      {
+        uids,
+        destination: shouldMove ? trashFolder : null,
+        originalMessages: localChange.originalMessages,
+        originalAttachments: localChange.originalAttachments,
+        optimisticMessages: localChange.optimisticMessages
+      },
+      { accountEmail: getOperationAccountEmail(email), folder }
     )
-    return { ok: true }
+    return { ok: true, destination: shouldMove ? trashFolder : null }
   } catch (err) {
     return { ok: false, error: err.message }
   }
@@ -647,13 +736,17 @@ ipcMain.handle('imap:bulk-delete', async (_e, folder, uids, email) => {
 
 ipcMain.handle('imap:bulk-move', async (_e, folder, uids, destination, email) => {
   try {
-    removeMessages(uids, folder)
-    persistDBImmediate()
-    enqueueImapOperation('bulkMove', 'message',
-      { uids, destination },
-      { accountEmail: email, folder }
+    const { originalMessages, originalAttachments, optimisticMessages } = moveMessagesOptimistic(
+      folder,
+      uids,
+      destination
     )
-    return { ok: true }
+    emitCachedFoldersChanged()
+    enqueueImapOperation('bulkMove', 'message',
+      { uids, destination, originalMessages, originalAttachments, optimisticMessages },
+      { accountEmail: getOperationAccountEmail(email), folder }
+    )
+    return { ok: true, destination }
   } catch (err) {
     return { ok: false, error: err.message }
   }
@@ -671,22 +764,21 @@ ipcMain.handle('smtp:send', async (_e, email, password, mailOptions) => {
 })
 
 ipcMain.handle('smtp:send-optimistic', async (_e, outboxEmail) => {
+  let id = null
   try {
-    const { addToOutbox } = await import('./syncQueue.js')
-    const id = addToOutbox(outboxEmail)
+    id = addToOutbox(outboxEmail)
 
-    // Enqueue the actual send operation
     enqueueSyncOperation('sendEmail', 'email',
       {
-        email: outboxEmail.accountEmail,
-        password: null, // Will be retrieved during processing
+        outboxId: id,
         mailOptions: outboxEmail
       },
-      { accountEmail: outboxEmail.accountEmail }
+      { accountEmail: outboxEmail.accountEmail, targetId: id }
     )
 
     return { ok: true, outboxId: id }
   } catch (err) {
+    if (id) markOutboxEmailFailed(id, err.message)
     return { ok: false, error: err.message }
   }
 })

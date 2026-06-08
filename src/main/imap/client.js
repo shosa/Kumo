@@ -7,12 +7,11 @@ import {
   upsertFolder,
   updateFolderCounts,
   getFolders,
-  getMessages,
-  getMessageCount,
   saveMessageBody,
   getMessageBody,
   removeMessages,
   getLocalUids,
+  getPendingLocalUids,
   updateMessageFlags,
   toggleMessageFlag,
   getSyncState,
@@ -20,6 +19,7 @@ import {
   upsertAttachmentMeta,
   updateMessageSnippet
 } from '../store/db.js'
+import { getServerOrphanUids } from '../optimisticMove.js'
 
 const IMAP_HOST = 'imap.mail.me.com'
 const IMAP_PORT = 993
@@ -382,9 +382,10 @@ export class ImapClient extends EventEmitter {
       const serverUidSet = new Set(serverUids)
       const localUids    = getLocalUids(folder, this.email)
       const localUidSet  = new Set(localUids)
+      const pendingUids = getPendingLocalUids(folder, this.email)
 
       // 1. Remove messages deleted from server (UID reconciliation)
-      const orphans = localUids.filter(uid => !serverUidSet.has(uid))
+      const orphans = getServerOrphanUids(localUids, serverUids, pendingUids)
       if (orphans.length) {
         removeMessages(orphans, folder)
         logDelete('Removed local messages missing on server', { folder, removed: orphans.length })
@@ -498,29 +499,6 @@ export class ImapClient extends EventEmitter {
     }
   }
 
-  async fetchMessages(folder, page = 1, pageSize = 50) {
-    const offset = (page - 1) * pageSize
-    const total = getMessageCount(folder)
-    const cached = getMessages(folder, pageSize, offset)
-
-    // Sync only when cache is cold AND folder hasn't been synced in the last 30s
-    if (cached.length < pageSize && offset === 0) {
-      const lastSync = this._lastSyncTime.get(folder) || 0
-      if (Date.now() - lastSync > 30000) {
-        await this._syncFolder(folder)
-      }
-    }
-
-    const messages = getMessages(folder, pageSize, offset)
-    return {
-      messages,
-      total: Math.max(total, messages.length),
-      page,
-      pageSize,
-      hasMore: offset + messages.length < total
-    }
-  }
-
   async fetchBody(folder, uid) {
     // Return cached body if already fetched
     const cached = getMessageBody(folder, uid)
@@ -623,8 +601,7 @@ export class ImapClient extends EventEmitter {
     logMove(`Sposto uid=${uid} da "${folder}" → "${destination}"`)
     const lock = await this.client.getMailboxLock(folder)
     try {
-      await this.client.messageMove([uid], destination, { uid: true })
-      removeMessages([uid], folder)
+      return await this.client.messageMove([uid], destination, { uid: true })
     } finally {
       lock.release()
     }
@@ -641,14 +618,13 @@ export class ImapClient extends EventEmitter {
       const lock = await this.client.getMailboxLock(folder)
       try {
         await this.client.messageFlagsAdd([uid], ['\\Deleted'], { uid: true })
-        await this.client.messageDelete([uid], { uid: true })
-        removeMessages([uid], folder)
+        return await this.client.messageDelete([uid], { uid: true })
       } finally {
         lock.release()
       }
     } else {
       logDelete(`Sposto uid=${uid} nel cestino "${trashFolder}"`)
-      await this.moveMessage(folder, uid, trashFolder)
+      return await this.moveMessage(folder, uid, trashFolder)
     }
   }
 
@@ -657,10 +633,10 @@ export class ImapClient extends EventEmitter {
     if (isJunk) {
       const junkFolder = folders.find(f => f.special_use === '\\Junk')?.path || 'Junk'
       logMove(`Segno come spam uid=${uid} → "${junkFolder}"`)
-      await this.moveMessage(folder, uid, junkFolder)
+      return await this.moveMessage(folder, uid, junkFolder)
     } else {
       logMove(`Rimuovo spam uid=${uid} → INBOX`)
-      await this.moveMessage(folder, uid, 'INBOX')
+      return await this.moveMessage(folder, uid, 'INBOX')
     }
   }
 
@@ -767,12 +743,12 @@ export class ImapClient extends EventEmitter {
     try {
       if (folder === trashFolder) {
         await this.client.messageFlagsAdd(uids, ['\\Deleted'], { uid: true })
-        await this.client.messageDelete(uids, { uid: true })
+        return await this.client.messageDelete(uids, { uid: true })
       } else {
-        await this.client.messageMove(uids, trashFolder, { uid: true })
+        const result = await this.client.messageMove(uids, trashFolder, { uid: true })
         logMove(`Spostate ${uids.length} email nel cestino "${trashFolder}"`)
+        return result
       }
-      removeMessages(uids, folder)
     } finally {
       lock.release()
     }
@@ -783,8 +759,7 @@ export class ImapClient extends EventEmitter {
     logMove(`Sposto ${uids.length} email da "${folder}" → "${destination}"`)
     const lock = await this.client.getMailboxLock(folder)
     try {
-      await this.client.messageMove(uids, destination, { uid: true })
-      removeMessages(uids, folder)
+      return await this.client.messageMove(uids, destination, { uid: true })
     } finally {
       lock.release()
     }

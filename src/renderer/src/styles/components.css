@@ -1268,3 +1268,158 @@
   line-height: 1.5;
 }
 
+/* ============================================================================
+   MOTION SYSTEM
+   ============================================================================ */
+@keyframes folderEnter {
+  from { opacity: 0; transform: translateX(-7px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes mailEnter {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes mailArrive {
+  0% { opacity: 0; transform: translateX(-34px) scale(0.975); background: var(--accent-soft); }
+  58% { opacity: 1; transform: translateX(3px) scale(1.004); background: var(--accent-soft); }
+  100% { opacity: 1; transform: none; background: transparent; }
+}
+
+@keyframes listArrivalPulse {
+  0% { transform: scale(1); }
+  28% { transform: scale(0.992); }
+  62% { transform: scale(1.004); }
+  100% { transform: none; }
+}
+
+@keyframes unreadPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 3px var(--accent-soft); }
+  45% { transform: scale(1.25); box-shadow: 0 0 0 7px transparent; }
+}
+
+@keyframes mailExit {
+  0% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    max-height: 120px;
+    padding-top: var(--row-pad-y);
+    padding-bottom: var(--row-pad-y);
+  }
+  58% {
+    opacity: 0;
+    transform: translateX(28px) scale(0.985);
+    max-height: 120px;
+    padding-top: var(--row-pad-y);
+    padding-bottom: var(--row-pad-y);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(42px) scale(0.98);
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-bottom-width: 0;
+  }
+}
+
+@keyframes readerEnter {
+  from { opacity: 0; transform: translateX(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes readerExit {
+  to { opacity: 0; transform: translateX(16px) scale(0.995); }
+}
+
+@keyframes detailEnter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.rail__mark {
+  transition: transform 180ms var(--ease-spring), box-shadow 180ms var(--ease);
+}
+.rail__mark:hover { transform: rotate(-4deg) scale(1.06); box-shadow: 0 8px 20px -5px var(--accent-glow); }
+.rail__btn.active::before { animation: detailEnter 180ms var(--ease-spring) both; }
+.rail__badge { animation: scaleIn 220ms var(--ease-spring) both; }
+
+.folder {
+  animation: folderEnter 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transition: background .14s, color .14s, transform .14s var(--ease);
+}
+.folder:hover { transform: translateX(2px); }
+.folder:nth-child(2) { animation-delay: 18ms; }
+.folder:nth-child(3) { animation-delay: 36ms; }
+.folder:nth-child(4) { animation-delay: 54ms; }
+.folder:nth-child(5) { animation-delay: 72ms; }
+.folder:nth-child(6) { animation-delay: 90ms; }
+.folder__count.badge { animation: scaleIn 200ms var(--ease-spring) both; }
+
+.mail:not(.mail--skeleton) {
+  animation: mailEnter 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: center right;
+  will-change: transform, opacity;
+}
+.mail:not(.mail--skeleton):nth-child(2) { animation-delay: 12ms; }
+.mail:not(.mail--skeleton):nth-child(3) { animation-delay: 24ms; }
+.mail:not(.mail--skeleton):nth-child(4) { animation-delay: 36ms; }
+.mail:not(.mail--skeleton):nth-child(5) { animation-delay: 48ms; }
+.mail:not(.mail--skeleton):nth-child(6) { animation-delay: 60ms; }
+.mail:not(.mail--skeleton):nth-child(7) { animation-delay: 72ms; }
+.mail:not(.mail--skeleton):nth-child(8) { animation-delay: 84ms; }
+.mail--new:not(.mail--exiting) { animation: mailArrive 620ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.mail--new .mail__unread { animation: unreadPulse 900ms 2 ease-out; }
+.list--new-mail .list__body {
+  transform-origin: top center;
+  animation: listArrivalPulse 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.mail--exiting {
+  pointer-events: none;
+  overflow: hidden;
+  animation: mailExit 180ms cubic-bezier(0.4, 0, 1, 1) forwards !important;
+}
+.mail.sel::before { animation: detailEnter 160ms var(--ease-spring) both; }
+.mail__avatar { transition: transform 160ms var(--ease-spring), filter 160ms var(--ease); }
+.mail:hover .mail__avatar { transform: scale(1.06); filter: saturate(1.08); }
+
+.reader--active { animation: readerEnter 280ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.reader--exiting {
+  pointer-events: none;
+  animation: readerExit 180ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+.reader__bar,
+.reader__body,
+.attach { animation: detailEnter 280ms 45ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.reader__empty-mark { animation: bootstrapMark 1.6s ease-in-out infinite alternate; }
+
+.crow,
+.ev,
+.sset,
+.cdetail > *,
+.cal__detail > * {
+  animation: detailEnter 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.crow:hover,
+.ev:hover { transform: translateX(2px); }
+.crow,
+.ev { transition: background .12s, transform .14s var(--ease); }
+
+.image-preview-overlay,
+.cmdk-overlay,
+.overlay { animation: fadeIn 160ms var(--ease) both; }
+.image-preview-modal,
+.contact-picker { animation: scaleIn 220ms var(--ease-spring) both; }
+.banner { animation: detailEnter 220ms var(--ease-spring) both; }
+.storage__fill { transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+

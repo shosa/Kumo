@@ -5,6 +5,7 @@ const DispatchCtx = createContext(null)
 
 const initialState = {
   auth: {
+    initialized: false,
     isAuthenticated: false,
     email: null
   },
@@ -23,7 +24,9 @@ const initialState = {
     total: 0,
     searchQuery: '',
     searchResults: null,
-    pendingNotifUid: null
+    pendingNotifUid: null,
+    exitingKeys: [],
+    newMailKey: null
   },
   compose: {
     isOpen: false,
@@ -72,13 +75,18 @@ function reducer(state, action) {
     case 'SET_AUTHENTICATED':
       return {
         ...state,
-        auth: { isAuthenticated: true, email: action.payload }
+        auth: { initialized: true, isAuthenticated: true, email: action.payload }
       }
     case 'SET_UNAUTHENTICATED':
       return {
         ...state,
-        auth: { isAuthenticated: false, email: null },
+        auth: { initialized: true, isAuthenticated: false, email: null },
         connectionStatus: 'disconnected'
+      }
+    case 'SET_AUTH_INITIALIZED':
+      return {
+        ...state,
+        auth: { ...state.auth, initialized: true }
       }
     case 'SET_CONNECTION_STATUS':
       return { ...state, connectionStatus: action.payload }
@@ -160,7 +168,8 @@ function reducer(state, action) {
       const list = state.messages.list.filter(
         m => !(m.uid === action.payload.uid && m.folder === action.payload.folder)
       )
-      const selected = state.messages.selected?.uid === action.payload.uid
+      const selected = state.messages.selected?.uid === action.payload.uid &&
+        state.messages.selected?.folder === action.payload.folder
         ? null : state.messages.selected
       const wasUnread = removed && !removed.flags?.includes('\\Seen')
       const folderList = wasUnread && action.payload.folder
@@ -170,7 +179,27 @@ function reducer(state, action) {
               : f
           )
         : state.folders.list
-      return { ...state, messages: { ...state.messages, list, selected }, folders: { ...state.folders, list: folderList } }
+      const removedKey = `${action.payload.folder}-${action.payload.uid}`
+      return {
+        ...state,
+        messages: {
+          ...state.messages,
+          list,
+          selected,
+          exitingKeys: state.messages.exitingKeys.filter(key => key !== removedKey)
+        },
+        folders: { ...state.folders, list: folderList }
+      }
+    }
+    case 'MARK_MESSAGES_EXITING': {
+      const keys = action.payload.map(message => `${message.folder}-${message.uid}`)
+      return {
+        ...state,
+        messages: {
+          ...state.messages,
+          exitingKeys: [...new Set([...state.messages.exitingKeys, ...keys])]
+        }
+      }
     }
     case 'SET_SEARCH_QUERY':
       return { ...state, messages: { ...state.messages, searchQuery: action.payload } }
@@ -181,18 +210,47 @@ function reducer(state, action) {
 
     // New mail push
     case 'NEW_MAIL': {
+      const newMailKey = `${action.payload.folder}-${action.payload.uid}`
+      const folderList = state.folders.list.map(folder =>
+        folder.path === action.payload.folder
+          ? { ...folder, unread_count: (folder.unread_count || 0) + 1 }
+          : folder
+      )
       if (action.payload.folder === state.folders.selected) {
-        // Will trigger a refresh in the component
-        return { ...state, messages: { ...state.messages, _newMailSignal: Date.now() } }
+        return {
+          ...state,
+          folders: { ...state.folders, list: folderList },
+          messages: {
+            ...state.messages,
+            _newMailSignal: Date.now(),
+            newMailKey
+          }
+        }
       }
-      return state
+      return {
+        ...state,
+        folders: { ...state.folders, list: folderList },
+        messages: { ...state.messages, newMailKey }
+      }
     }
+    case 'CLEAR_NEW_MAIL':
+      return { ...state, messages: { ...state.messages, newMailKey: null } }
 
     case 'SYNC_COMPLETE': {
       if (action.payload.folder === state.folders.selected) {
-        return { ...state, messages: { ...state.messages, _syncSignal: Date.now() } }
+        return {
+          ...state,
+          messages: {
+            ...state.messages,
+            _syncSignal: Date.now(),
+            _lastSyncedFolder: action.payload.folder
+          }
+        }
       }
-      return state
+      return {
+        ...state,
+        messages: { ...state.messages, _lastSyncedFolder: action.payload.folder }
+      }
     }
 
     // Compose
@@ -277,12 +335,22 @@ export function AppProvider({ children }) {
   // Check for existing credentials on mount
   useEffect(() => {
     async function checkAuth() {
-      const result = await window.api.auth.getCredentials()
-      if (result.ok && result.creds) {
-        dispatch({ type: 'SET_AUTHENTICATED', payload: result.creds.email })
+      try {
+        const [result, settingsRes] = await Promise.all([
+          window.api.auth.getCredentials(),
+          window.api.settings.get()
+        ])
+        if (settingsRes.ok) {
+          dispatch({ type: 'UPDATE_SETTINGS', payload: settingsRes.settings })
+        }
+        if (result.ok && result.creds) {
+          dispatch({ type: 'SET_AUTHENTICATED', payload: result.creds.email })
+        } else {
+          dispatch({ type: 'SET_AUTH_INITIALIZED' })
+        }
+      } catch {
+        dispatch({ type: 'SET_AUTH_INITIALIZED' })
       }
-      const settingsRes = await window.api.settings.get()
-      if (settingsRes.ok) dispatch({ type: 'UPDATE_SETTINGS', payload: settingsRes.settings })
     }
     checkAuth()
 

@@ -207,6 +207,15 @@ export default function MessageViewerApp({ message }) {
     })
   }, [])
 
+  useEffect(() => {
+    if (!message) return undefined
+    return window.api.on('sync:rollback', ({ folder, uid, flags: restoredFlags }) => {
+      if (folder === message.folder && uid === message.uid && Array.isArray(restoredFlags)) {
+        setFlags(restoredFlags)
+      }
+    })
+  }, [message?.folder, message?.uid])
+
   useAppearance(settings)
 
   useEffect(() => {

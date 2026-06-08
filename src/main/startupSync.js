@@ -1,7 +1,18 @@
-import { dequeuePendingOperations, markSyncOperationCompleted, markSyncOperationFailed, clearFailedOperations } from './syncQueue.js'
+import {
+  clearFailedOperations,
+  dequeuePendingOperations,
+  markOptimisticOperationSynced,
+  markOutboxEmailFailed,
+  markOutboxEmailSent,
+  markSyncOperationCompleted,
+  markSyncOperationFailed,
+  rollbackQueuedOperation
+} from './syncQueue.js'
 import { logSync, logErr } from './logger.js'
 import { sendEmail } from './smtp/index.js'
 import { getCredentials } from './auth/index.js'
+import { reconcileOptimisticMove, removeOptimisticMoveCopies } from './store/db.js'
+import { normalizeUidMap } from './optimisticMove.js'
 
 // Startup sync: replay pending sync operations on app start
 export async function replayPendingSyncOperations(imapClients, coordinator = null) {
@@ -19,12 +30,17 @@ export async function replayPendingSyncOperations(imapClients, coordinator = nul
   logSync(`[StartupSync] Found ${pendingOperations.length} pending operations`)
 
   for (const op of pendingOperations) {
+    const outboxId = op.target_id || op.data?.outboxId
     try {
       if (coordinator && op.operation !== 'sendEmail') {
         await coordinator.runQueuedOperation(op, () => processSyncOperation(op, imapClients))
       } else {
         await processSyncOperation(op, imapClients)
       }
+      if (op.operation === 'sendEmail' && outboxId) {
+        markOutboxEmailSent(outboxId)
+      }
+      markOptimisticOperationSynced(op)
       markSyncOperationCompleted(op.id)
       logSync('Startup sync completed operation', {
         op: op.operation,
@@ -42,7 +58,13 @@ export async function replayPendingSyncOperations(imapClients, coordinator = nul
         uid: op.uid,
         error: err.message
       })
-      markSyncOperationFailed(op.id, err.message)
+      const terminal = markSyncOperationFailed(op.id, err.message)
+      if (terminal) {
+        if (op.operation === 'sendEmail' && outboxId) {
+          markOutboxEmailFailed(outboxId, err.message)
+        }
+        rollbackQueuedOperation(op, err.message)
+      }
     }
   }
 
@@ -102,24 +124,26 @@ async function processMoveMessage(data, accountEmail, folder, uid, imapClients) 
   const client = imapClients.get(accountEmail)
   if (!client) throw new Error(`No IMAP client for ${accountEmail}`)
 
-  const { destination } = data
-  await client.moveMessage(folder, uid, destination)
+  await performRemoteMove(client, folder, [uid], data)
 }
 
 async function processDeleteMessage(data, accountEmail, folder, uid, imapClients) {
   const client = imapClients.get(accountEmail)
   if (!client) throw new Error(`No IMAP client for ${accountEmail}`)
 
-  const { permanent } = data
-  await client.deleteMessage(folder, uid, permanent)
+  if (data.destination) {
+    await performRemoteMove(client, folder, [uid], data)
+  } else {
+    await client.deleteMessage(folder, uid, true)
+    await refreshSourceCounts(client, folder)
+  }
 }
 
 async function processMarkJunk(data, accountEmail, folder, uid, imapClients) {
   const client = imapClients.get(accountEmail)
   if (!client) throw new Error(`No IMAP client for ${accountEmail}`)
 
-  const { isJunk } = data
-  await client.markJunk(folder, uid, isJunk)
+  await performRemoteMove(client, folder, [uid], data)
 }
 
 async function processSendEmail(data, accountEmail) {
@@ -137,11 +161,55 @@ async function processBulkSetFlags(data, accountEmail, folder, imapClients) {
 async function processBulkDelete(data, accountEmail, folder, imapClients) {
   const client = imapClients.get(accountEmail)
   if (!client) throw new Error(`No IMAP client for ${accountEmail}`)
-  await client.bulkDelete(folder, data.uids)
+  if (data.destination) {
+    await performRemoteMove(client, folder, data.uids, data)
+  } else {
+    await client.bulkDelete(folder, data.uids)
+    await refreshSourceCounts(client, folder)
+  }
 }
 
 async function processBulkMove(data, accountEmail, folder, imapClients) {
   const client = imapClients.get(accountEmail)
   if (!client) throw new Error(`No IMAP client for ${accountEmail}`)
-  await client.bulkMove(folder, data.uids, data.destination)
+  await performRemoteMove(client, folder, data.uids, data)
+}
+
+async function performRemoteMove(client, folder, uids, data) {
+  const result = uids.length === 1
+    ? await client.moveMessage(folder, uids[0], data.destination)
+    : await client.bulkMove(folder, uids, data.destination)
+
+  try {
+    const uidMap = normalizeUidMap(result?.uidMap)
+    reconcileOptimisticMove(data.optimisticMessages || [], uidMap)
+    removeOptimisticMoveCopies(
+      (data.optimisticMessages || []).filter(mapping =>
+        !uidMap.has(Number(mapping.sourceUid))
+      )
+    )
+  } catch (error) {
+    logErr('Could not reconcile optimistic UID mapping during startup', {
+      folder,
+      destination: data.destination,
+      error: error.message
+    })
+  }
+
+  try {
+    await client._syncFolder(data.destination, true)
+    await refreshSourceCounts(client, folder)
+  } catch (error) {
+    logErr('Post-move startup refresh deferred', {
+      folder,
+      destination: data.destination,
+      error: error.message
+    })
+  }
+}
+
+async function refreshSourceCounts(client, folder) {
+  try {
+    await client._syncFolderCounts(folder)
+  } catch { /* next folder sync will reconcile counts */ }
 }

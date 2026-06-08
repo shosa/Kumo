@@ -421,20 +421,6 @@ export default function ComposeWindow() {
       addr.name ? `${addr.name} <${addr.address}>` : addr.address
     ).join(', ')
 
-    const mailOptions = {
-      to: formatAddresses(to),
-      cc: cc.length > 0 ? formatAddresses(cc) : undefined,
-      bcc: bcc.length > 0 ? formatAddresses(bcc) : undefined,
-      subject,
-      html,
-      text,
-      fromName,
-      inReplyTo: msg?.message_id || undefined,
-      references: msg?.message_id || undefined,
-      attachments: attachments.map(a => ({ filename: a.name, path: a.path }))
-    }
-
-    // Optimistic sending: add to outbox and show as sent immediately
     const outboxEmail = {
       accountEmail: creds.creds.email,
       to: formatAddresses(to),
@@ -443,6 +429,7 @@ export default function ComposeWindow() {
       subject,
       html,
       text,
+      fromName,
       inReplyTo: msg?.message_id || undefined,
       references: msg?.message_id || undefined,
       attachments: attachments.map(a => ({ filename: a.name, path: a.path }))

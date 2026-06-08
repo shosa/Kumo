@@ -3,6 +3,7 @@ import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
 import { IconSearch, IconClose, IconAttach, IconEnvelope, IconStar, IconReply, IconTrash, IconMarkRead, IconRefresh, IconArrowDown } from './Icons'
 import ContextMenu from './ContextMenu'
+import { animateMessageRemoval } from '../motion'
 
 const AVATAR_COLORS = [
   '#0071e3','#5e5ebc','#bf5af2','#ff6b35',
@@ -58,6 +59,7 @@ export default function MessageList() {
   const t = useTranslation()
   const listRef = useRef(null)
   const searchInputRef = useRef(null)
+  const lastAutoSyncFolder = useRef(null)
   const [localSearch, setLocalSearch] = useState('')
   const searchDebounce = useRef(null)
   const [contextMenu, setContextMenu] = useState(null)
@@ -66,6 +68,7 @@ export default function MessageList() {
   const [sortBy, setSortBy] = useState('date-desc')
   const [expandedThreads, setExpandedThreads] = useState(new Set())
   const [isSyncing, setIsSyncing] = useState(false)
+  const [arrivalPulse, setArrivalPulse] = useState(false)
 
   const folder = state.folders.selected
 
@@ -80,17 +83,12 @@ export default function MessageList() {
     return map
   }, [state.contacts.list])
 
-  function load(label) { dispatch({ type: 'SET_LOADING', payload: label }) }
-  function done()      { dispatch({ type: 'CLEAR_LOADING' }) }
-
-  const loadMessages = useCallback(async (page = 1) => {
+  const loadMessages = useCallback(async (page = 1, showLoading = page > 1) => {
     if (!folder) return
-    load(t('loading.messages'))
-    dispatch({ type: 'SET_MESSAGES_LOADING', payload: true })
+    if (showLoading) dispatch({ type: 'SET_MESSAGES_LOADING', payload: true })
     const result = await window.api.imap.fetchMessages(folder, page, 50)
     if (result.ok) dispatch({ type: 'SET_MESSAGES', payload: { ...result, page } })
     else dispatch({ type: 'SET_MESSAGES_LOADING', payload: false })
-    done()
   }, [folder, dispatch])
 
   async function handleSync() {
@@ -98,7 +96,7 @@ export default function MessageList() {
     setIsSyncing(true)
     try {
       await window.api.imap.syncFolder(folder)
-      await loadMessages(1)
+      await loadMessages(1, false)
     } catch { /* ignore */ }
     setIsSyncing(false)
   }
@@ -107,10 +105,28 @@ export default function MessageList() {
     setSortBy(s => s === 'date-desc' ? 'date-asc' : s === 'date-asc' ? 'from' : 'date-desc')
   }
 
-  useEffect(() => { if (folder) loadMessages(1) }, [folder, loadMessages])
-  useEffect(() => { if (state.messages._newMailSignal) loadMessages(1) }, [state.messages._newMailSignal, loadMessages])
-  useEffect(() => { if (state.messages._syncSignal) loadMessages(1) }, [state.messages._syncSignal, loadMessages])
+  useEffect(() => { if (folder) loadMessages(1, false) }, [folder, loadMessages])
+  useEffect(() => { if (state.messages._newMailSignal) loadMessages(1, false) }, [state.messages._newMailSignal, loadMessages])
+  useEffect(() => { if (state.messages._syncSignal) loadMessages(1, false) }, [state.messages._syncSignal, loadMessages])
   useEffect(() => { if (listRef.current) listRef.current.scrollTop = 0 }, [folder])
+
+  useEffect(() => {
+    if (!folder || state.connectionStatus !== 'connected') return
+    if (lastAutoSyncFolder.current === folder) return
+    lastAutoSyncFolder.current = folder
+
+    if (state.messages._lastSyncedFolder === folder) return
+
+    setIsSyncing(true)
+    window.api.imap.syncFolder(folder)
+      .then(() => {
+        if (lastAutoSyncFolder.current === folder) return loadMessages(1, false)
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (lastAutoSyncFolder.current === folder) setIsSyncing(false)
+      })
+  }, [folder, state.connectionStatus, loadMessages])
 
   // Clear multi-selection and reset filters when folder changes
   useEffect(() => { setSelectedKeys(new Set()); setActiveFilter('all'); setSortBy('date-desc') }, [folder])
@@ -256,17 +272,17 @@ export default function MessageList() {
         window.api.imap.bulkSetFlag(folder0, uids, '\\Flagged', false, state.auth.email)
         break
       case 'move':
-        messages.forEach(m => dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: m.uid, folder: m.folder } }))
+        animateMessageRemoval(dispatch, messages)
         setSelectedKeys(new Set())
         window.api.imap.bulkMove(folder0, uids, data, state.auth.email)
         break
       case 'junk':
-        messages.forEach(m => dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: m.uid, folder: m.folder } }))
+        animateMessageRemoval(dispatch, messages)
         setSelectedKeys(new Set())
         Promise.all(messages.map(m => window.api.imap.markJunk(m.folder, m.uid, true, state.auth.email)))
         break
       case 'delete':
-        messages.forEach(m => dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: m.uid, folder: m.folder } }))
+        animateMessageRemoval(dispatch, messages)
         setSelectedKeys(new Set())
         window.api.imap.bulkDelete(folder0, uids, state.auth.email)
         break
@@ -295,6 +311,26 @@ export default function MessageList() {
     if (sortBy === 'subject') return (a.subject || '').localeCompare(b.subject || '')
     return (b.date || 0) - (a.date || 0)
   })
+  const hasIncomingMail = displayMessages.some(message =>
+    msgKey(message) === state.messages.newMailKey
+  )
+
+  useEffect(() => {
+    if (!hasIncomingMail) return undefined
+
+    setArrivalPulse(false)
+    let secondFrame
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => setArrivalPulse(true))
+    })
+    const timer = setTimeout(() => setArrivalPulse(false), 720)
+
+    return () => {
+      cancelAnimationFrame(firstFrame)
+      if (secondFrame) cancelAnimationFrame(secondFrame)
+      clearTimeout(timer)
+    }
+  }, [hasIncomingMail, state.messages.newMailKey])
 
   const primaryUid = state.messages.selected?.uid
 
@@ -323,7 +359,7 @@ export default function MessageList() {
   }
 
   return (
-    <div className="list" onClick={e => { if (!e.defaultPrevented) setContextMenu(null) }}>
+    <div className={`list${arrivalPulse ? ' list--new-mail' : ''}`} onClick={e => { if (!e.defaultPrevented) setContextMenu(null) }}>
 
       <div className="list__head">
         <div className="list__titlerow">
@@ -422,6 +458,8 @@ export default function MessageList() {
                     message={msg}
                     selected={primaryUid === msg.uid && selectedKeys.size === 0}
                     multiSelected={selectedKeys.has(msgKey(msg))}
+                    exiting={state.messages.exitingKeys.includes(msgKey(msg))}
+                    isNew={state.messages.newMailKey === msgKey(msg)}
                     threadCount={idx === 0 && isMulti ? threadMsgs.length : null}
                     isThreadChild={idx > 0}
                     contactMap={contactMap}
@@ -434,7 +472,11 @@ export default function MessageList() {
                       return next
                     }) : null}
                     onClick={e => handleItemClick(e, msg)}
-                    onDoubleClick={() => window.api.window.openMessage(msg)}
+                    onDoubleClick={() => {
+                      if (msg.uid > 0 && msg.sync_status !== 'pending') {
+                        window.api.window.openMessage(msg)
+                      }
+                    }}
                     onContextMenu={e => handleItemContextMenu(e, msg)}
                     onDragStart={e => {
                       const isInSelection = selectedKeys.has(msgKey(msg)) && selectedKeys.size > 1
@@ -480,7 +522,7 @@ export default function MessageList() {
   )
 }
 
-function MessageItem({ message, selected, multiSelected, threadCount, isThreadChild, onThreadExpand, onClick, onDoubleClick, onContextMenu, onDragStart, onQuickAction, contactMap, state, t }) {
+function MessageItem({ message, selected, multiSelected, exiting, isNew, threadCount, isThreadChild, onThreadExpand, onClick, onDoubleClick, onContextMenu, onDragStart, onQuickAction, contactMap, state, t }) {
   const isUnread  = !message.flags?.includes('\\Seen')
   const isStarred = message.flags?.includes('\\Flagged')
   const hasAttachments = message.has_attachments || false
@@ -500,7 +542,7 @@ function MessageItem({ message, selected, multiSelected, threadCount, isThreadCh
 
   return (
     <div
-      className={`mail${selected ? ' sel' : ''}${isUnread ? '' : ' read'}${multiSelected ? ' multi-selected' : ''}${isThreadChild ? ' thread-child' : ''}`}
+      className={`mail${selected ? ' sel' : ''}${isUnread ? '' : ' read'}${multiSelected ? ' multi-selected' : ''}${isThreadChild ? ' thread-child' : ''}${exiting ? ' mail--exiting' : ''}${isNew ? ' mail--new' : ''}`}
       data-avatars={state.settings.showAvatars !== false ? 'on' : 'off'}
       data-preview={state.settings.showPreview !== false ? 'on' : 'off'}
       draggable

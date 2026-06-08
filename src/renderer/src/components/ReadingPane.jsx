@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
+import { animateMessageRemoval } from '../motion'
 import {
   IconReply, IconReplyAll, IconForward, IconStar, IconMarkRead,
   IconTrash, IconNoSymbol, IconEnvelope, IconArchive,
@@ -241,6 +242,20 @@ export default function ReadingPane() {
     setBodyLoading(true)
     setImagesLoadedByUser(false)
     setImagesBlocked(state.settings.blockRemoteImages)
+
+    if (msg.uid < 0 || msg.sync_status === 'pending') {
+      setBody({
+        html: msg.body_html || null,
+        text: msg.body_text || msg.snippet || ''
+      })
+      window.api.imap.getAttachmentMeta(msg.uid, msg.folder)
+        .then(metaResult => {
+          if (metaResult.ok && metaResult.metas?.length) setAttachmentMeta(metaResult.metas)
+        })
+        .finally(() => setBodyLoading(false))
+      return
+    }
+
     dispatch({ type: 'SET_LOADING', payload: t('loading.email') })
 
     Promise.all([
@@ -356,14 +371,14 @@ export default function ReadingPane() {
 
   function handleDelete() {
     if (!msg || !msg.folder) return
-    dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
+    animateMessageRemoval(dispatch, [msg])
     window.api.imap.deleteMessage(msg.folder, msg.uid, false, state.auth.email)
   }
 
   function handleArchive() {
     if (!msg || !msg.folder) return
-    dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
-    window.api.imap.archiveMessage?.(msg.folder, msg.uid)
+    animateMessageRemoval(dispatch, [msg])
+    window.api.imap.archiveMessage(msg.folder, msg.uid, state.auth.email)
   }
 
   function handleToggleStar() {
@@ -388,7 +403,7 @@ export default function ReadingPane() {
 
   function handleMarkJunk() {
     if (!msg || !msg.folder) return
-    dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
+    animateMessageRemoval(dispatch, [msg])
     window.api.imap.markJunk(msg.folder, msg.uid, true, state.auth.email)
   }
 
@@ -492,9 +507,10 @@ export default function ReadingPane() {
     : null
 
   const iframeDoc = renderHtml ? buildEmailIframeDoc(renderHtml) : null
+  const isExiting = state.messages.exitingKeys.includes(`${msg.folder}-${msg.uid}`)
 
   return (
-    <div className="reader" key={msg.uid}>
+    <div className={`reader reader--active${isExiting ? ' reader--exiting' : ''}`} key={`${msg.folder}-${msg.uid}`}>
       {filePreview && (
         <div
           className="image-preview-overlay"

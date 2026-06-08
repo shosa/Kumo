@@ -280,6 +280,10 @@ export default function ComposeViewerApp({ composeData }) {
   async function handleSend() {
     if (to.length === 0) { setError('compose.error.noRecipient'); return }
     if (!subject.trim()) { setError('compose.error.noSubject'); return }
+    if ([...to, ...cc, ...bcc].some(address => !address.isValid)) {
+      setError('compose.error.invalidAddresses')
+      return
+    }
     setSending(true)
     setError(null)
 
@@ -296,16 +300,21 @@ export default function ComposeViewerApp({ composeData }) {
 
     const fromName = creds.creds.email
 
-    const mailOptions = {
-      to: formatAddresses(to), cc: cc.length ? formatAddresses(cc) : undefined, bcc: bcc.length ? formatAddresses(bcc) : undefined,
-      subject, html, text,
+    const outboxEmail = {
+      accountEmail: creds.creds.email,
+      to: formatAddresses(to),
+      cc: cc.length ? formatAddresses(cc) : undefined,
+      bcc: bcc.length ? formatAddresses(bcc) : undefined,
+      subject,
+      html,
+      text,
       fromName,
       inReplyTo: msg?.message_id || undefined,
       references: msg?.message_id || undefined,
       attachments: attachments.map(a => ({ filename: a.name, path: a.path }))
     }
 
-    const result = await window.api.smtp.send(creds.creds.email, creds.creds.password, mailOptions)
+    const result = await window.api.smtp.sendOptimistic(outboxEmail)
     if (result.ok) {
       if (draftId) { window.api.drafts.delete(draftId) }
       setSent(true)

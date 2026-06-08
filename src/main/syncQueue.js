@@ -1,4 +1,13 @@
-import { getDB, persistDBImmediate } from './store/db.js'
+import {
+  getDB,
+  persistDBImmediate,
+  recalcFolderUnread,
+  removeOptimisticMoveCopies,
+  restoreAttachmentSnapshots,
+  restoreMessageSnapshots,
+  setMessagesSyncStatus,
+  updateMessageFlags
+} from './store/db.js'
 import { logSync, logErr } from './logger.js'
 import { BrowserWindow } from 'electron'
 
@@ -35,6 +44,7 @@ export function enqueueSyncOperation(operation, targetType, data, options = {}) 
     folder || null,
     uid || null
   ])
+  persistDBImmediate()
 
   logSync('Sync operation queued', {
     op: operation,
@@ -85,6 +95,7 @@ export function dequeuePendingOperations() {
 export function markSyncOperationCompleted(id) {
   const d = getDB()
   d.run(`DELETE FROM sync_queue WHERE id = ?`, [id])
+  persistDBImmediate()
   emitSyncOperationUpdate({ id, status: 'completed' })
 
   // Notify renderer that a sync operation completed
@@ -102,7 +113,7 @@ export function markSyncOperationFailed(id, error) {
   let op = null
   if (stmt.step()) op = stmt.getAsObject()
   stmt.free()
-  if (!op) return
+  if (!op) return false
 
   const newRetryCount = (op.retry_count || 0) + 1
 
@@ -127,6 +138,7 @@ export function markSyncOperationFailed(id, error) {
       mainWindow.webContents.send('sync:operation-end')
     }
     d.run(`DELETE FROM sync_queue WHERE id = ?`, [id])
+    persistDBImmediate()
     logErr('Sync operation dead-lettered', {
       op: op.operation,
       folder: op.folder,
@@ -134,7 +146,7 @@ export function markSyncOperationFailed(id, error) {
       retry: newRetryCount,
       error
     })
-    return
+    return true
   }
 
   const nextRetryAt = Date.now() + Math.min(Math.pow(2, newRetryCount) * 2000, 60000)
@@ -143,6 +155,7 @@ export function markSyncOperationFailed(id, error) {
     SET retry_count = ?, last_error = ?, next_retry_at = ?
     WHERE id = ?
   `, [newRetryCount, error, nextRetryAt, id])
+  persistDBImmediate()
   emitSyncOperationUpdate({
     id,
     operation: op.operation,
@@ -161,11 +174,13 @@ export function markSyncOperationFailed(id, error) {
     nextInSec: Math.round((nextRetryAt - Date.now()) / 1000),
     error
   })
+  return false
 }
 
 export function clearFailedOperations() {
   const d = getDB()
   d.run(`DELETE FROM sync_queue WHERE retry_count >= 5`)
+  persistDBImmediate()
 }
 
 // Outbox operations for optimistic email sending
@@ -191,12 +206,7 @@ export function addToOutbox(emailData) {
   const result = d.exec(`SELECT last_insert_rowid() as id`)
   const id = result[0]?.values?.[0]?.[0]
   logSync(`[Outbox] Added email to outbox: ${id}`)
-
-  // Notify renderer that a send operation started
-  const mainWindow = BrowserWindow.getAllWindows().find(win => !win.isDestroyed())
-  if (mainWindow) {
-    mainWindow.webContents.send('sync:operation-start')
-  }
+  persistDBImmediate()
 
   return id
 }
@@ -228,12 +238,7 @@ export function markOutboxEmailSent(id) {
     SET sync_status = 'sent', sent_at = strftime('%s','now') * 1000
     WHERE id = ?
   `, [id])
-
-  // Notify renderer that a send operation completed
-  const mainWindow = BrowserWindow.getAllWindows().find(win => !win.isDestroyed())
-  if (mainWindow) {
-    mainWindow.webContents.send('sync:operation-end')
-  }
+  persistDBImmediate()
 }
 
 export function markOutboxEmailFailed(id, error) {
@@ -243,12 +248,7 @@ export function markOutboxEmailFailed(id, error) {
     SET sync_status = 'error', error_message = ?
     WHERE id = ?
   `, [error, id])
-
-  // Notify renderer that a send operation ended (failed)
-  const mainWindow = BrowserWindow.getAllWindows().find(win => !win.isDestroyed())
-  if (mainWindow) {
-    mainWindow.webContents.send('sync:operation-end')
-  }
+  persistDBImmediate()
 }
 
 // Optimistic local operations
@@ -283,31 +283,52 @@ export function updateMessageOptimistic(folder, uid, updates, options = {}) {
   }
 }
 
-export function rollbackOptimisticUpdate(folder, uid, originalData) {
-  const d = getDB()
-  const setClauses = []
-  const values = []
+export function markOptimisticOperationSynced(operation) {
+  const { operation: type, data, folder, uid } = operation
+  if (type === 'setFlags' && uid) {
+    setMessagesSyncStatus(folder, [uid], 'synced')
+  } else if (type === 'bulkSetFlags') {
+    setMessagesSyncStatus(folder, data.uids || [], 'synced')
+  } else {
+    return
+  }
+  persistDBImmediate()
+}
 
-  for (const [key, value] of Object.entries(originalData)) {
-    setClauses.push(`${key} = ?`)
-    if (key === 'flags') {
-      values.push(JSON.stringify(value))
-    } else {
-      values.push(value)
+export function rollbackQueuedOperation(operation, error) {
+  const { operation: type, data, folder, uid } = operation
+
+  if (type === 'setFlags' && uid && Array.isArray(data.originalFlags)) {
+    updateMessageFlags(folder, uid, data.originalFlags)
+    setMessagesSyncStatus(folder, [uid], 'synced')
+    recalcFolderUnread(folder)
+  } else if (type === 'bulkSetFlags' && Array.isArray(data.originalFlags)) {
+    for (const original of data.originalFlags) {
+      updateMessageFlags(folder, original.uid, original.flags || [])
     }
+    setMessagesSyncStatus(folder, data.originalFlags.map(original => original.uid), 'synced')
+    recalcFolderUnread(folder)
+  } else if (['moveMessage', 'deleteMessage', 'markJunk', 'bulkDelete', 'bulkMove'].includes(type)) {
+    removeOptimisticMoveCopies(data.optimisticMessages || [])
+    restoreMessageSnapshots(data.originalMessages || [])
+    restoreAttachmentSnapshots(data.originalAttachments || [])
+  } else {
+    return
   }
 
-  // Restore sync status to synced
-  setClauses.push('sync_status = ?')
-  values.push('synced')
-
-  values.push(folder, uid)
-
-  d.run(`
-    UPDATE messages
-    SET ${setClauses.join(', ')}
-    WHERE folder = ? AND uid = ?
-  `, values)
-
-  logErr(`[SyncQueue] Rolled back optimistic update for message ${uid} in ${folder}`)
+  persistDBImmediate()
+  const update = {
+    operation: type,
+    folder: folder || null,
+    uid: uid || null,
+    uids: data.uids || null,
+    destination: data.destination || null,
+    flags: type === 'setFlags' ? data.originalFlags : null,
+    status: 'rolled-back',
+    error
+  }
+  emitSyncOperationUpdate(update)
+  const mainWindow = getMainWindow()
+  mainWindow?.webContents.send('sync:rollback', update)
+  logErr('Optimistic operation rolled back', update)
 }

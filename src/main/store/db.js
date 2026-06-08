@@ -3,6 +3,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { logErr, logWarn } from '../logger.js'
+import { buildOptimisticMovePlan, normalizeUidMap } from '../optimisticMove.js'
 
 let db = null
 let SQL = null
@@ -733,6 +734,18 @@ export function getLocalUids(folder, accountEmail) {
   return uids
 }
 
+export function getPendingLocalUids(folder, accountEmail) {
+  const d = getDB()
+  const stmt = accountEmail
+    ? d.prepare(`SELECT uid FROM messages WHERE folder = ? AND account_email = ? AND sync_status = 'pending'`)
+    : d.prepare(`SELECT uid FROM messages WHERE folder = ? AND sync_status = 'pending'`)
+  accountEmail ? stmt.bind([folder, accountEmail]) : stmt.bind([folder])
+  const uids = []
+  while (stmt.step()) uids.push(stmt.getAsObject().uid)
+  stmt.free()
+  return uids
+}
+
 export function updateMessageFlags(folder, uid, flags) {
   const d = getDB()
   d.run(`UPDATE messages SET flags = ? WHERE folder = ? AND uid = ?`,
@@ -754,6 +767,309 @@ export function toggleMessageFlag(folder, uid, flag, add) {
     : flags.filter(f => f !== flag)
   d.run(`UPDATE messages SET flags = ? WHERE folder = ? AND uid = ?`,
     [JSON.stringify(updated), folder, uid])
+  scheduleSave()
+}
+
+export function getMessageSnapshots(folder, uids) {
+  if (!uids?.length) return []
+  const d = getDB()
+  const placeholders = uids.map(() => '?').join(',')
+  const stmt = d.prepare(`
+    SELECT *
+    FROM messages
+    WHERE folder = ? AND uid IN (${placeholders})
+  `)
+  stmt.bind([folder, ...uids])
+  return allRows(stmt)
+}
+
+export function getAttachmentSnapshots(folder, uids) {
+  if (!uids?.length) return []
+  const d = getDB()
+  const placeholders = uids.map(() => '?').join(',')
+  const stmt = d.prepare(`
+    SELECT *
+    FROM attachments
+    WHERE folder = ? AND uid IN (${placeholders})
+  `)
+  stmt.bind([folder, ...uids])
+  return allRows(stmt)
+}
+
+export function setMessagesSyncStatus(folder, uids, status) {
+  if (!uids?.length) return
+  const d = getDB()
+  const placeholders = uids.map(() => '?').join(',')
+  d.run(
+    `UPDATE messages SET sync_status = ? WHERE folder = ? AND uid IN (${placeholders})`,
+    [status, folder, ...uids]
+  )
+  scheduleSave()
+}
+
+export function restoreMessageSnapshots(messages) {
+  if (!messages?.length) return
+  const d = getDB()
+
+  for (const message of messages) {
+    d.run(`
+      INSERT OR REPLACE INTO messages
+        (id, uid, folder, message_id, subject, from_name, from_email,
+         to_addresses, cc_addresses, date, flags, snippet, has_attachments, size,
+         body_html, body_text, body_fetched, account_email, thread_id, in_reply_to,
+         message_refs, sync_status)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `, [
+      message.id,
+      message.uid,
+      message.folder,
+      message.message_id,
+      message.subject,
+      message.from_name,
+      message.from_email,
+      message.to_addresses,
+      message.cc_addresses,
+      message.date,
+      message.flags,
+      message.snippet,
+      message.has_attachments,
+      message.size,
+      message.body_html,
+      message.body_text,
+      message.body_fetched,
+      message.account_email,
+      message.thread_id,
+      message.in_reply_to,
+      message.message_refs,
+      'synced'
+    ])
+
+    try {
+      d.run(`DELETE FROM messages_fts WHERE uid = ? AND folder = ?`, [message.uid, message.folder])
+      d.run(`
+        INSERT INTO messages_fts(uid, folder, subject, body_text, from_name, from_email)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, [
+        message.uid,
+        message.folder,
+        message.subject || '',
+        message.body_text || message.snippet || '',
+        message.from_name || '',
+        message.from_email || ''
+      ])
+    } catch { /* FTS5 best-effort */ }
+  }
+
+  const folders = [...new Set(messages.map(message => message.folder).filter(Boolean))]
+  for (const folder of folders) recalcFolderUnread(folder)
+  scheduleSave()
+}
+
+export function restoreAttachmentSnapshots(attachments) {
+  if (!attachments?.length) return
+  const d = getDB()
+
+  for (const attachment of attachments) {
+    d.run(`
+      INSERT OR REPLACE INTO attachments
+        (id, uid, folder, message_id, part_id, filename, content_type, size,
+         content_id, is_inline, file_path, downloaded)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    `, [
+      attachment.id,
+      attachment.uid,
+      attachment.folder,
+      attachment.message_id,
+      attachment.part_id,
+      attachment.filename,
+      attachment.content_type,
+      attachment.size,
+      attachment.content_id,
+      attachment.is_inline,
+      attachment.file_path,
+      attachment.downloaded
+    ])
+  }
+  scheduleSave()
+}
+
+function getNextProvisionalUid() {
+  const d = getDB()
+  const stmt = d.prepare(`SELECT MIN(uid) AS min_uid FROM messages WHERE uid < 0`)
+  const row = oneRow(stmt)
+  return Math.min(-1, (row?.min_uid || 0) - 1)
+}
+
+function insertMessageSnapshot(message) {
+  const d = getDB()
+  d.run(`
+    INSERT OR REPLACE INTO messages
+      (uid, folder, message_id, subject, from_name, from_email,
+       to_addresses, cc_addresses, date, flags, snippet, has_attachments, size,
+       body_html, body_text, body_fetched, account_email, thread_id, in_reply_to,
+       message_refs, sync_status)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `, [
+    message.uid,
+    message.folder,
+    message.message_id,
+    message.subject,
+    message.from_name,
+    message.from_email,
+    message.to_addresses,
+    message.cc_addresses,
+    message.date,
+    message.flags,
+    message.snippet,
+    message.has_attachments,
+    message.size,
+    message.body_html,
+    message.body_text,
+    message.body_fetched,
+    message.account_email,
+    message.thread_id,
+    message.in_reply_to,
+    message.message_refs,
+    message.sync_status || 'pending'
+  ])
+
+  try {
+    d.run(`
+      INSERT INTO messages_fts(uid, folder, subject, body_text, from_name, from_email)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [
+      message.uid,
+      message.folder,
+      message.subject || '',
+      message.body_text || message.snippet || '',
+      message.from_name || '',
+      message.from_email || ''
+    ])
+  } catch { /* FTS5 best-effort */ }
+}
+
+function copyAttachments(sourceFolder, sourceUid, destination, provisionalUid) {
+  const d = getDB()
+  d.run(`
+    INSERT INTO attachments
+      (uid, folder, message_id, part_id, filename, content_type, size,
+       content_id, is_inline, file_path, downloaded)
+    SELECT ?, ?, message_id, part_id, filename, content_type, size,
+           content_id, is_inline, file_path, downloaded
+    FROM attachments
+    WHERE folder = ? AND uid = ?
+  `, [provisionalUid, destination, sourceFolder, sourceUid])
+}
+
+export function moveMessagesOptimistic(sourceFolder, uids, destination) {
+  if (!uids?.length || !destination || sourceFolder === destination) {
+    return { originalMessages: [], originalAttachments: [], optimisticMessages: [] }
+  }
+
+  const d = getDB()
+  const originalMessages = getMessageSnapshots(sourceFolder, uids)
+  const originalAttachments = getAttachmentSnapshots(sourceFolder, uids)
+  const plan = buildOptimisticMovePlan(
+    originalMessages,
+    destination,
+    getNextProvisionalUid()
+  )
+
+  d.run('BEGIN')
+  try {
+    for (const { optimisticMessage, mapping } of plan) {
+      insertMessageSnapshot(optimisticMessage)
+      copyAttachments(sourceFolder, mapping.sourceUid, destination, mapping.provisionalUid)
+    }
+    removeMessages(uids, sourceFolder)
+    recalcFolderUnread(destination)
+    d.run('COMMIT')
+  } catch (error) {
+    d.run('ROLLBACK')
+    throw error
+  }
+
+  persistDBImmediate()
+  return {
+    originalMessages,
+    originalAttachments,
+    optimisticMessages: plan.map(item => item.mapping)
+  }
+}
+
+export function reconcileOptimisticMove(optimisticMessages, uidMap) {
+  if (!optimisticMessages?.length) return
+  const d = getDB()
+  const normalizedUidMap = normalizeUidMap(uidMap)
+
+  d.run('BEGIN')
+  try {
+    for (const mapping of optimisticMessages) {
+      const destinationUid = normalizedUidMap.get(Number(mapping.sourceUid))
+      if (!destinationUid) continue
+
+      d.run(
+        `DELETE FROM messages WHERE folder = ? AND uid = ? AND uid != ?`,
+        [mapping.destination, destinationUid, mapping.provisionalUid]
+      )
+      d.run(
+        `DELETE FROM attachments WHERE folder = ? AND uid = ? AND uid != ?`,
+        [mapping.destination, destinationUid, mapping.provisionalUid]
+      )
+      try {
+        d.run(
+          `DELETE FROM messages_fts WHERE folder = ? AND uid = ? AND uid != ?`,
+          [mapping.destination, destinationUid, mapping.provisionalUid]
+        )
+      } catch { /* FTS5 best-effort */ }
+      d.run(
+        `UPDATE messages SET uid = ?, sync_status = 'synced' WHERE folder = ? AND uid = ?`,
+        [destinationUid, mapping.destination, mapping.provisionalUid]
+      )
+      d.run(
+        `UPDATE attachments SET uid = ? WHERE folder = ? AND uid = ?`,
+        [destinationUid, mapping.destination, mapping.provisionalUid]
+      )
+      try {
+        d.run(
+          `UPDATE messages_fts SET uid = ? WHERE folder = ? AND uid = ?`,
+          [destinationUid, mapping.destination, mapping.provisionalUid]
+        )
+      } catch { /* FTS5 best-effort */ }
+    }
+    d.run('COMMIT')
+  } catch (error) {
+    d.run('ROLLBACK')
+    throw error
+  }
+
+  persistDBImmediate()
+}
+
+export function removeOptimisticMoveCopies(optimisticMessages) {
+  if (!optimisticMessages?.length) return
+  const d = getDB()
+  const destinations = new Set()
+
+  for (const mapping of optimisticMessages) {
+    d.run(
+      `DELETE FROM messages WHERE folder = ? AND uid = ?`,
+      [mapping.destination, mapping.provisionalUid]
+    )
+    d.run(
+      `DELETE FROM attachments WHERE folder = ? AND uid = ?`,
+      [mapping.destination, mapping.provisionalUid]
+    )
+    try {
+      d.run(
+        `DELETE FROM messages_fts WHERE folder = ? AND uid = ?`,
+        [mapping.destination, mapping.provisionalUid]
+      )
+    } catch { /* FTS5 best-effort */ }
+    destinations.add(mapping.destination)
+  }
+
+  for (const destination of destinations) recalcFolderUnread(destination)
   scheduleSave()
 }
 
@@ -784,6 +1100,10 @@ export function removeMessages(uids, folder) {
   const d = getDB()
   const placeholders = uids.map(() => '?').join(',')
   d.run(`DELETE FROM messages WHERE folder = ? AND uid IN (${placeholders})`, [folder, ...uids])
+  d.run(`DELETE FROM attachments WHERE folder = ? AND uid IN (${placeholders})`, [folder, ...uids])
+  try {
+    d.run(`DELETE FROM messages_fts WHERE folder = ? AND uid IN (${placeholders})`, [folder, ...uids])
+  } catch { /* FTS5 best-effort */ }
   recalcFolderUnread(folder)
   scheduleSave()
 }
@@ -821,8 +1141,11 @@ export function resetAllData() {
   d.run(`DELETE FROM attachments`)
   d.run(`DELETE FROM contacts`)
   d.run(`DELETE FROM calendar_events`)
+  d.run(`DELETE FROM calendar_sources`)
+  d.run(`DELETE FROM sync_queue`)
+  d.run(`DELETE FROM outbox`)
   try { d.run(`DELETE FROM messages_fts`) } catch { /* FTS5 best-effort */ }
-  scheduleSave()
+  persistDBImmediate()
 }
 
 // Graceful shutdown — ensure pending writes are flushed

@@ -33,6 +33,27 @@ body {
   color: var(--ink);
 }
 
+.app-bootstrap {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  background: var(--bg-tint);
+}
+
+.app-bootstrap__mark {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 24px;
+  font-weight: 700;
+  box-shadow: 0 12px 32px -14px var(--accent-glow);
+  animation: bootstrapMark 1.15s cubic-bezier(0.22, 1, 0.36, 1) infinite alternate;
+}
+
 .app-layout {
   flex: 1;
   display: flex;
@@ -40,6 +61,7 @@ body {
   background:
     radial-gradient(90% 70% at 0% 0%, var(--accent-softer) 0%, transparent 55%),
     var(--bg-tint);
+  animation: appShellIn 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .app-layout__sidebar {
@@ -48,12 +70,14 @@ body {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  animation: panelInLeft 320ms 40ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .app-layout__msglist {
   flex-shrink: 0;
   min-height: 0;
   height: 100%;
+  animation: panelInLeft 340ms 80ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .app-layout__reading {
@@ -62,6 +86,7 @@ body {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  animation: panelInRight 360ms 110ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .app-layout__full {
@@ -69,6 +94,7 @@ body {
   min-width: 0;
   min-height: 0;
   display: flex;
+  animation: viewIn 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .resize-handle--vertical {
@@ -205,6 +231,31 @@ a:hover { text-decoration: underline; }
 @keyframes scaleIn {
   from { opacity: 0; transform: scale(0.96); }
   to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes bootstrapMark {
+  from { transform: translateY(2px) scale(0.96); box-shadow: 0 8px 24px -16px var(--accent-glow); }
+  to { transform: translateY(-3px) scale(1.03); box-shadow: 0 16px 36px -12px var(--accent-glow); }
+}
+
+@keyframes appShellIn {
+  from { opacity: 0; transform: scale(0.995); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes panelInLeft {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes panelInRight {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes viewIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.995); }
+  to { opacity: 1; transform: none; }
 }
 
 /* ── Utility ─────────────────────────────────────────────────────────────── */

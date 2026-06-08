@@ -13,6 +13,8 @@ import TitleBar from './components/TitleBar'
 import UpdateBanner from './components/UpdateBanner'
 import CommandPalette from './components/CommandPalette'
 import { useAppearance } from './appearance'
+import { normalizeConnectionStatus } from './connectionStatus'
+import { animateMessageRemoval } from './motion'
 
 const MSGLIST_MIN = 220
 const MSGLIST_MAX = 480
@@ -131,7 +133,8 @@ export default function App() {
   // IPC listeners
   useEffect(() => {
     const offNewMail = window.api.on('imap:new-mail', data => dispatch({ type: 'NEW_MAIL', payload: data }))
-    const offStatus  = window.api.on('imap:connection-status', status => {
+    const offStatus  = window.api.on('imap:connection-status', payload => {
+      const status = normalizeConnectionStatus(payload)
       dispatch({ type: 'SET_CONNECTION_STATUS', payload: status })
       if (status === 'connecting' || status === 'reconnecting') {
         dispatch({ type: 'SET_LOADING', payload: status === 'reconnecting' ? 'Reconnecting…' : 'Connecting…' })
@@ -146,8 +149,38 @@ export default function App() {
       dispatch({ type: 'UPDATE_MESSAGE_FLAGS', payload: { folder, uid, flags } }))
     const offNotif   = window.api.on('imap:notification-click', ({ folder, uid }) =>
       dispatch({ type: 'NOTIF_OPEN_MAIL', payload: { folder, uid } }))
-    return () => { offNewMail?.(); offStatus?.(); offCompose?.(); offSync?.(); offFlags?.(); offNotif?.() }
-  }, [dispatch])
+    const offFoldersChanged = window.api.on('store:folders-changed', folders =>
+      dispatch({ type: 'SET_FOLDERS', payload: folders }))
+    const offRollback = window.api.on('sync:rollback', ({ folder, destination, uid, flags }) => {
+      if (folder && uid && Array.isArray(flags)) {
+        dispatch({ type: 'UPDATE_MESSAGE_FLAGS', payload: { folder, uid, flags } })
+      } else if (folder || destination) {
+        const selectedFolder = state.folders.selected
+        if (selectedFolder === folder || selectedFolder === destination) {
+          dispatch({ type: 'SYNC_COMPLETE', payload: { folder: selectedFolder, rolledBack: true } })
+        }
+        window.api.imap.getFolders().then(result => {
+          if (result.ok) dispatch({ type: 'SET_FOLDERS', payload: result.folders })
+        })
+      }
+    })
+    return () => {
+      offNewMail?.()
+      offStatus?.()
+      offCompose?.()
+      offSync?.()
+      offFlags?.()
+      offNotif?.()
+      offFoldersChanged?.()
+      offRollback?.()
+    }
+  }, [dispatch, state.folders.selected])
+
+  useEffect(() => {
+    if (!state.messages.newMailKey) return undefined
+    const timer = setTimeout(() => dispatch({ type: 'CLEAR_NEW_MAIL' }), 2400)
+    return () => clearTimeout(timer)
+  }, [state.messages.newMailKey, dispatch])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -172,8 +205,8 @@ if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
           if (state.messages.selected && view === 'mail') {
             const msg = state.messages.selected
             if (msg.folder) {
-              dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
-              window.api.imap.archiveMessage?.(msg.folder, msg.uid)
+              animateMessageRemoval(dispatch, [msg])
+              window.api.imap.archiveMessage(msg.folder, msg.uid, state.auth.email)
             }
           }
           break
@@ -182,7 +215,7 @@ if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
           if (state.messages.selected && view === 'mail') {
             const msg = state.messages.selected
             if (msg.folder) {
-              dispatch({ type: 'REMOVE_MESSAGE', payload: { uid: msg.uid, folder: msg.folder } })
+              animateMessageRemoval(dispatch, [msg])
               window.api.imap.deleteMessage(msg.folder, msg.uid, false, state.auth.email)
             }
           }
@@ -195,6 +228,17 @@ if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [state.auth.isAuthenticated, state.compose.isOpen, state.messages.selected, view, dispatch, cmdkOpen])
+
+  if (!state.auth.initialized) {
+    return (
+      <div className="app-root">
+        <TitleBar />
+        <div className="app-bootstrap" aria-label="Loading Kumo">
+          <div className="app-bootstrap__mark">K</div>
+        </div>
+      </div>
+    )
+  }
 
   if (!state.auth.isAuthenticated) {
     return (

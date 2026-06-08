@@ -103,7 +103,7 @@ export default function ContextMenu({ x, y, messages = [], folders = [], onClose
     closeMoveTimer.current = setTimeout(() => setShowMove(false), 120)
   }
 
-  return (
+  return createPortal(
     <div
       ref={menuRef}
       className="context-menu"
@@ -196,6 +196,7 @@ export default function ContextMenu({ x, y, messages = [], folders = [], onClose
         </div>,
         document.querySelector('.app-root') || document.body
       )}
-    </div>
+    </div>,
+    document.querySelector('.app-root') || document.body
   )
 }
