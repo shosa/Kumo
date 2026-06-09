@@ -1,9 +1,11 @@
 import { ipcMain, app } from 'electron'
-import { logErr, logInfo } from './logger.js'
+import { logDebug, logErr, logInfo } from './logger.js'
+import { createUpdateChecker } from './updaterCheck.js'
 
 let _sender = null
 let _autoUpdater = null
 let _registered = false
+let _checkActive = false
 
 function send(event, payload) {
   try { _sender?.send('updater:status', { event, ...payload }) } catch { /* window may be destroyed */ }
@@ -16,17 +18,45 @@ async function getAutoUpdater() {
   const { autoUpdater } = await import('electron-updater')
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
-  autoUpdater.logger = null // disable file logging; we relay via IPC
+  autoUpdater.requestHeaders = {
+    'Cache-Control': 'no-cache',
+    Pragma: 'no-cache'
+  }
+  autoUpdater.logger = {
+    info: message => logInfo('Updater', { message }),
+    warn: message => logDebug('Updater warning', { message }),
+    error: message => logErr('Updater', { error: message }),
+    debug: message => logDebug('Updater', { message })
+  }
 
   autoUpdater.on('checking-for-update', () => { logInfo('Updater checking for updates'); send('checking') })
   autoUpdater.on('update-available',     (info) => { logInfo('Updater found update', { version: info.version }); send('available',   { version: info.version }) })
   autoUpdater.on('update-not-available', (info) => { logInfo('Updater found no update', { version: info?.version }); send('not-available') })
   autoUpdater.on('download-progress',    (p)    => { send('progress', { percent: Math.round(p.percent) }) })
   autoUpdater.on('update-downloaded',    (info) => { logInfo('Updater downloaded update', { version: info.version }); send('downloaded',  { version: info.version }) })
-  autoUpdater.on('error',                (err)  => { logErr('Updater error', { error: err.message }); send('error', { message: err.message }) })
+  autoUpdater.on('error',                (err)  => {
+    logErr('Updater error', { error: err.message })
+    if (!_checkActive) send('error', { message: err.message })
+  })
 
   _autoUpdater = autoUpdater
   return _autoUpdater
+}
+
+const updateChecker = createUpdateChecker({
+  getAutoUpdater,
+  onAttemptError: (error, attempt) => {
+    logErr('Updater check attempt failed', { attempt, error: error.message })
+  }
+})
+
+async function checkForUpdates() {
+  _checkActive = true
+  try {
+    return await updateChecker.check()
+  } finally {
+    _checkActive = false
+  }
 }
 
 export function initUpdater(mainWindow) {
@@ -36,17 +66,11 @@ export function initUpdater(mainWindow) {
     ipcMain.handle('updater:version', () => app.getVersion())
 
     ipcMain.handle('updater:check', async () => {
-      try {
-        const au = await getAutoUpdater()
-        if (!au) { logInfo('Updater disabled in development'); return { ok: false, error: 'Updater disabled in development' } }
-        logInfo('Updater check requested')
-        await au.checkForUpdates()
-        logInfo('Updater check completed')
-        return { ok: true }
-      } catch (err) {
-        logErr('Updater check failed', { error: err.message })
-        return { ok: false, error: err.message }
-      }
+      logInfo('Updater check requested')
+      const result = await checkForUpdates()
+      if (result.ok) logInfo('Updater check completed', { status: result.status, version: result.version })
+      else logErr('Updater check failed', { code: result.code, error: result.error })
+      return result
     })
 
     ipcMain.handle('updater:download', async () => {
@@ -73,8 +97,10 @@ export function initUpdater(mainWindow) {
     mainWindow.webContents.once('did-finish-load', () => {
       setTimeout(async () => {
         try {
-          const au = await getAutoUpdater()
-          await au?.checkForUpdates()
+          const result = await checkForUpdates()
+          if (!result.ok) {
+            logErr('Automatic updater check failed', { code: result.code, error: result.error })
+          }
         } catch { /* silent — user can check manually */ }
       }, 5_000)
     })

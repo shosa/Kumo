@@ -38,6 +38,7 @@ import { isLogoExcludedFolder } from './senderLogo.js'
 import { createSenderLogoResolver } from './senderLogoResolver.js'
 import { isLocalAppUrl, shouldBlockFrameNavigation } from './frameNavigation.js'
 import { clearDirectoryContents, getDirectorySize, getFileSize } from './storageFiles.js'
+import { printKumoTerminalBanner } from './devBanner.js'
 
 // In dev mode, isolate data from the production install
 if (process.env.ELECTRON_RENDERER_URL) {
@@ -1448,6 +1449,8 @@ const KUMO_MIME = {
 }
 
 app.whenReady().then(async () => {
+  if (process.env.ELECTRON_RENDERER_URL) printKumoTerminalBanner()
+
   protocol.handle('kumo-local', async (request) => {
     try {
       let filePath = decodeURIComponent(new URL(request.url).pathname)

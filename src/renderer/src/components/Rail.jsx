@@ -38,6 +38,19 @@ function avatarColor(email) {
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length]
 }
 
+function RailNavButton({ id, Icon, label, badge, active, onSelect }) {
+  return (
+    <button
+      className={`rail__btn${active ? ' active' : ''}`}
+      title={label}
+      onClick={() => onSelect(id)}
+    >
+      <Icon size={21} />
+      {badge ? <span className="rail__badge">{badge > 99 ? '99+' : badge}</span> : null}
+    </button>
+  )
+}
+
 export default function Rail({ onSearch }) {
   const state = useAppState()
   const dispatch = useAppDispatch()
@@ -50,25 +63,14 @@ export default function Rail({ onSearch }) {
 
   function setView(v) { dispatch({ type: 'SET_VIEW', payload: v }) }
 
-  const NavBtn = ({ id, Icon, label, badge }) => (
-    <button
-      className={`rail__btn${view === id ? ' active' : ''}`}
-      title={label}
-      onClick={() => setView(id)}
-    >
-      <Icon size={21} />
-      {badge ? <span className="rail__badge">{badge > 99 ? '99+' : badge}</span> : null}
-    </button>
-  )
-
   return (
     <div className="rail">
       <div className="rail__mark" title="Kumo">
         {logoDataUrl && <img src={logoDataUrl} alt="Kumo" className="rail__mark-logo" />}
       </div>
-      <NavBtn id="mail"     Icon={IconMail}     label={t('nav.mail')}      badge={unread || null} />
-      <NavBtn id="contacts" Icon={IconContacts} label={t('nav.contacts')} />
-      <NavBtn id="calendar" Icon={IconCalendar} label={t('nav.calendar')} />
+      <RailNavButton id="mail" Icon={IconMail} label={t('nav.mail')} badge={unread || null} active={view === 'mail'} onSelect={setView} />
+      <RailNavButton id="contacts" Icon={IconContacts} label={t('nav.contacts')} active={view === 'contacts'} onSelect={setView} />
+      <RailNavButton id="calendar" Icon={IconCalendar} label={t('nav.calendar')} active={view === 'calendar'} onSelect={setView} />
       <button className="rail__btn" title={t('sidebar.searchShortcut')} onClick={onSearch}>
         <IconSearch size={20} />
       </button>
