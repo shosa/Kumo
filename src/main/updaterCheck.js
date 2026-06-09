@@ -24,6 +24,14 @@ function normalizeResult(result) {
   }
 }
 
+export function resolveAutoUpdaterModule(moduleNamespace) {
+  const autoUpdater = moduleNamespace?.autoUpdater || moduleNamespace?.default?.autoUpdater
+  if (!autoUpdater) {
+    throw new Error('electron-updater did not expose autoUpdater')
+  }
+  return autoUpdater
+}
+
 export function createUpdateChecker({
   getAutoUpdater,
   timeoutMs = 20_000,

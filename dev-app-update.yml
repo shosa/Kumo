@@ -1,0 +1,4 @@
+owner: shosa
+repo: Kumo
+provider: github
+updaterCacheDirName: kumo-updater-dev

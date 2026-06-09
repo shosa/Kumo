@@ -14,6 +14,7 @@ export default function Settings() {
   const [appVersion,       setAppVersion]       = useState('')
   const [updateStatus,     setUpdateStatus]     = useState(null) // null | 'checking' | 'available' | 'not-available' | 'error'
   const [updateVersion,    setUpdateVersion]    = useState('')
+  const [updateError,      setUpdateError]      = useState('')
   const [clearingContacts, setClearingContacts] = useState(false)
   const [contactsCleared,  setContactsCleared]  = useState(false)
   const [clearingCalendar, setClearingCalendar] = useState(false)
@@ -53,9 +54,11 @@ export default function Settings() {
   async function handleCheckUpdate() {
     setUpdateStatus('checking')
     setUpdateVersion('')
+    setUpdateError('')
     const result = await window.api.updater.check()
       .catch(err => ({ ok: false, error: err.message }))
     if (!result?.ok) {
+      setUpdateError(result?.error || '')
       setUpdateStatus('error')
       return
     }
@@ -496,7 +499,7 @@ export default function Settings() {
                     {updateStatus === 'checking'      ? t('settings.checkingUpdates')
                    : updateStatus === 'available'     ? t('settings.updateAvailable', updateVersion)
                    : updateStatus === 'not-available' ? t('settings.upToDate')
-                   : updateStatus === 'error'         ? t('settings.updateError')
+                   : updateStatus === 'error'         ? `${t('settings.updateError')}${updateError ? `: ${updateError}` : ''}`
                    : t('settings.checkUpdatesDesc')}
                   </div>
                 </div>

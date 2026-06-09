@@ -1,6 +1,23 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createUpdateChecker } from './updaterCheck.js'
+import { createUpdateChecker, resolveAutoUpdaterModule } from './updaterCheck.js'
+
+test('resolves autoUpdater from an ESM named export', () => {
+  const autoUpdater = {}
+  assert.equal(resolveAutoUpdaterModule({ autoUpdater }), autoUpdater)
+})
+
+test('resolves autoUpdater from a CommonJS default export', () => {
+  const autoUpdater = {}
+  assert.equal(resolveAutoUpdaterModule({ default: { autoUpdater } }), autoUpdater)
+})
+
+test('fails clearly when electron-updater has an unexpected module shape', () => {
+  assert.throws(
+    () => resolveAutoUpdaterModule({ default: {} }),
+    /did not expose autoUpdater/
+  )
+})
 
 test('returns the available version directly from electron-updater result', async () => {
   const checker = createUpdateChecker({

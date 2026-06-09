@@ -1,6 +1,6 @@
 import { ipcMain, app } from 'electron'
 import { logDebug, logErr, logInfo } from './logger.js'
-import { createUpdateChecker } from './updaterCheck.js'
+import { createUpdateChecker, resolveAutoUpdaterModule } from './updaterCheck.js'
 
 let _sender = null
 let _autoUpdater = null
@@ -13,9 +13,12 @@ function send(event, payload) {
 
 async function getAutoUpdater() {
   if (_autoUpdater) return _autoUpdater
-  if (process.env.ELECTRON_RENDERER_URL) return null
 
-  const { autoUpdater } = await import('electron-updater')
+  const updaterModule = await import('electron-updater')
+  const autoUpdater = resolveAutoUpdaterModule(updaterModule)
+  if (process.env.ELECTRON_RENDERER_URL) {
+    autoUpdater.forceDevUpdateConfig = true
+  }
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
   autoUpdater.requestHeaders = {
@@ -76,7 +79,6 @@ export function initUpdater(mainWindow) {
     ipcMain.handle('updater:download', async () => {
       try {
         const au = await getAutoUpdater()
-        if (!au) return { ok: false, error: 'Updater disabled in development' }
         await au.downloadUpdate()
         return { ok: true }
       } catch (err) {
