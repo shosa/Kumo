@@ -5,11 +5,13 @@ import {
   getFolders, getMessages, getMessageCount,
   clearBodyCache, clearFolderCache, clearMessages, getDbPath, resetAllData,
   clearReclaimableCache, rebuildMailCache, getStorageCounts,
-  getDrafts, upsertDraft, deleteDraft,
+  getDrafts, upsertDraft, deleteDraft, getDraft, findDraftByRemote,
+  getThreadMessages, getSmartMessages, getSmartMessageCount,
+  getMailRules, saveMailRule, deleteMailRule, messageMatchesRule,
   getSyncState,
   getAttachmentsMeta, markAttachmentDownloaded,
-  upsertContact, getContacts, searchContacts, deleteContacts,
-  upsertEvent, getEvents, deleteEvents,
+  upsertContact, getContacts, searchContacts, deleteContacts, deleteContact,
+  upsertEvent, getEvents, deleteEvents, deleteEvent,
   upsertCalendarSource, getCalendarSources, setCalendarSourceEnabled,
   getAttachmentSnapshots, getMessageSnapshots, moveMessagesOptimistic, removeMessages,
   persistDBImmediate, recalcFolderUnread, getSyncQueueCount,
@@ -20,13 +22,19 @@ import { ImapClient } from './imap/client.js'
 import { ImapOperationCoordinator } from './imap/operationCoordinator.js'
 import { applyFlagChange, parseStoredFlags } from './messageFlags.js'
 import { sendEmail } from './smtp/index.js'
-import { syncContacts, dumpRawContacts } from './carddav/client.js'
-import { syncCalendar } from './caldav/client.js'
+import { syncContacts, dumpRawContacts, saveContact, deleteContactRemote } from './carddav/client.js'
+import {
+  syncCalendar,
+  saveCalendarItem,
+  deleteCalendarItemRemote,
+  buildCalendarReply
+} from './caldav/client.js'
 import { initLogger, logContact, logDebug, logErr, logInfo, logSync } from './logger.js'
 import { initUpdater } from './updater.js'
 import { replayPendingSyncOperations } from './startupSync.js'
 import {
   addToOutbox,
+  cancelOutboxEmail,
   enqueueSyncOperation,
   markOutboxEmailFailed,
   updateMessageOptimistic
@@ -295,9 +303,43 @@ function showNewMailNotification(subject, from, folder, uid) {
   } catch { /* Notification construction failed */ }
 }
 
+function applyRulesToIncomingMessage(email, message) {
+  for (const rule of getMailRules(true)) {
+    if (!messageMatchesRule(message, rule)) continue
+    const action = rule.action || {}
+    if (action.type === 'markRead' || action.type === 'star') {
+      const flag = action.type === 'markRead' ? '\\Seen' : '\\Flagged'
+      const originalFlags = getSnapshotFlags(message)
+      const flags = applyFlagChange(originalFlags, flag, true)
+      updateMessageOptimistic(message.folder, message.uid, { flags }, { immediate: true })
+      enqueueImapOperation('setFlags', 'message',
+        { flag, add: true, originalFlags },
+        { accountEmail: email, folder: message.folder, uid: message.uid }
+      )
+    } else if (action.type === 'move' && action.destination) {
+      const localChange = moveMessagesOptimistic(
+        message.folder,
+        [message.uid],
+        action.destination
+      )
+      emitCachedFoldersChanged()
+      enqueueImapOperation('moveMessage', 'message',
+        { destination: action.destination, ...localChange },
+        { accountEmail: email, folder: message.folder, uid: message.uid }
+      )
+    }
+    if (rule.stop_after) break
+  }
+}
+
 function _attachClientEvents(email, client) {
   if (client._listenersAttached) return
   client._listenersAttached = true
+  client.on('message-persisted', (message) => {
+    const folder = getFolders().find(item => item.path === message.folder)
+    if (folder?.special_use && folder.special_use !== '\\Inbox') return
+    applyRulesToIncomingMessage(email, message)
+  })
   client.on('new-mail', ({ subject, from, folder, uid }) => {
     const cur = unreadCounts.get(email) || 0
     unreadCounts.set(email, cur + 1)
@@ -476,8 +518,29 @@ ipcMain.handle('imap:fetch-messages', async (_e, folder, page, pageSize, email) 
     const currentPage = page || 1
     const currentPageSize = pageSize || 50
     const offset = (currentPage - 1) * currentPageSize
-    const total = getMessageCount(folder)
-    const messages = getMessages(folder, currentPageSize, offset)
+    let total
+    let messages
+    if (String(folder).startsWith('smart:')) {
+      const smartType = String(folder).slice(6)
+      const definitions = {
+        unread: { unread: true },
+        starred: { starred: true },
+        attachments: { hasAttachments: true },
+        reply: { needsReply: true }
+      }
+      let definition = definitions[smartType]
+      if (!definition && smartType.startsWith('rule-')) {
+        definition = getMailRules().find(
+          rule => rule.id === Number(smartType.slice(5))
+        )?.match
+      }
+      definition ||= {}
+      total = getSmartMessageCount(definition)
+      messages = getSmartMessages(definition, currentPageSize, offset)
+    } else {
+      total = getMessageCount(folder)
+      messages = getMessages(folder, currentPageSize, offset)
+    }
     return {
       ok: true,
       messages,
@@ -770,19 +833,44 @@ ipcMain.handle('smtp:send', async (_e, email, password, mailOptions) => {
 ipcMain.handle('smtp:send-optimistic', async (_e, outboxEmail) => {
   let id = null
   try {
-    id = addToOutbox(outboxEmail)
+    const undoSeconds = Math.max(0, Number(getSettings().undoSendDelay || 0))
+    const sendAfter = Date.now() + undoSeconds * 1000
+    id = addToOutbox({ ...outboxEmail, sendAfter })
 
     enqueueSyncOperation('sendEmail', 'email',
       {
         outboxId: id,
         mailOptions: outboxEmail
       },
-      { accountEmail: outboxEmail.accountEmail, targetId: id }
+      {
+        accountEmail: outboxEmail.accountEmail,
+        targetId: id,
+        availableAt: sendAfter
+      }
     )
 
-    return { ok: true, outboxId: id }
+    if (undoSeconds > 0) {
+      mainWindow?.webContents.send('smtp:undo-window', {
+        outboxId: id,
+        sendAfter,
+        undoSeconds,
+        subject: outboxEmail.subject || ''
+      })
+    }
+    setTimeout(() => {
+      flushSyncQueue(imapClients, imapCoordinator).catch(() => {})
+    }, Math.max(0, sendAfter - Date.now()) + 50)
+    return { ok: true, outboxId: id, sendAfter, undoSeconds }
   } catch (err) {
     if (id) markOutboxEmailFailed(id, err.message)
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('smtp:cancel-send', async (_e, outboxId) => {
+  try {
+    return { ok: cancelOutboxEmail(outboxId) }
+  } catch (err) {
     return { ok: false, error: err.message }
   }
 })
@@ -793,6 +881,14 @@ ipcMain.handle('store:search-local', async (_e, query) => {
   try {
     const results = searchMessages(query)
     return { ok: true, results }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('store:get-thread', async (_e, threadId, messageId) => {
+  try {
+    return { ok: true, messages: getThreadMessages(threadId, messageId) }
   } catch (err) {
     return { ok: false, error: err.message }
   }
@@ -1052,12 +1148,62 @@ ipcMain.handle('drafts:list', async (_e, accountEmail) => {
 ipcMain.handle('drafts:save', async (_e, draft) => {
   try {
     const id = upsertDraft(draft)
+    enqueueSyncOperation('saveDraft', 'draft', { draftId: id }, {
+      accountEmail: draft.account_email || getOperationAccountEmail(),
+      targetId: id,
+      coalesce: true
+    })
+    queueMicrotask(() => flushSyncQueue(imapClients, imapCoordinator).catch(() => {}))
     return { ok: true, id }
   } catch (err) { return { ok: false, error: err.message } }
 })
 
 ipcMain.handle('drafts:delete', async (_e, id) => {
-  try { deleteDraft(id); return { ok: true } }
+  try {
+    const draft = getDraft(id)
+    deleteDraft(id)
+    if (draft?.remote_uid && draft?.remote_folder) {
+      enqueueSyncOperation('deleteDraft', 'draft', {
+        remoteUid: draft.remote_uid,
+        remoteFolder: draft.remote_folder
+      }, {
+        accountEmail: draft.account_email || getOperationAccountEmail(),
+        targetId: id,
+        coalesce: true
+      })
+      queueMicrotask(() => flushSyncQueue(imapClients, imapCoordinator).catch(() => {}))
+    }
+    return { ok: true }
+  }
+  catch (err) { return { ok: false, error: err.message } }
+})
+
+ipcMain.handle('drafts:open-remote', async (_e, folder, uid, email) => {
+  try {
+    let draft = findDraftByRemote(folder, uid)
+    if (!draft) {
+      const client = getClient(email)
+      await client?.syncDrafts()
+      draft = findDraftByRemote(folder, uid)
+    }
+    return draft ? { ok: true, draft } : { ok: false, error: 'Draft not found' }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('rules:list', async () => {
+  try { return { ok: true, rules: getMailRules() } }
+  catch (err) { return { ok: false, error: err.message } }
+})
+
+ipcMain.handle('rules:save', async (_e, rule) => {
+  try { return { ok: true, id: saveMailRule(rule) } }
+  catch (err) { return { ok: false, error: err.message } }
+})
+
+ipcMain.handle('rules:delete', async (_e, id) => {
+  try { deleteMailRule(id); return { ok: true } }
   catch (err) { return { ok: false, error: err.message } }
 })
 
@@ -1100,6 +1246,33 @@ ipcMain.handle('contacts:search', async (_e, query, email) => {
   try {
     const contacts = searchContacts(query, email)
     return { ok: true, contacts }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('contacts:save', async (_e, contact, email) => {
+  try {
+    const accountEmail = email || contact.account_email || getOperationAccountEmail()
+    const creds = await getCredentials(accountEmail)
+    if (!creds) throw new Error(`No credentials for ${accountEmail}`)
+    const saved = await saveContact(creds.email, creds.password, contact)
+    const local = { ...saved, account_email: creds.email, source: 'carddav' }
+    upsertContact(local)
+    return { ok: true, contact: local }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('contacts:delete', async (_e, contact, email) => {
+  try {
+    const accountEmail = email || contact.account_email || getOperationAccountEmail()
+    const creds = await getCredentials(accountEmail)
+    if (!creds) throw new Error(`No credentials for ${accountEmail}`)
+    await deleteContactRemote(creds.email, creds.password, contact)
+    deleteContact(contact.id)
+    return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
   }
@@ -1174,6 +1347,79 @@ ipcMain.handle('calendar:events', async (_e, email, fromTs, toTs) => {
   try {
     const events = getEvents(email, fromTs, toTs)
     return { ok: true, events }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('calendar:save', async (_e, item, email) => {
+  try {
+    const accountEmail = email || item.account_email || getOperationAccountEmail()
+    const creds = await getCredentials(accountEmail)
+    if (!creds) throw new Error(`No credentials for ${accountEmail}`)
+    const saved = await saveCalendarItem(creds.email, creds.password, item)
+    const source = getCalendarSources(accountEmail).find(entry => entry.href === saved.calendar_href)
+    const local = {
+      ...saved,
+      account_email: accountEmail,
+      calendar_id: item.calendar_id || source?.name || 'Calendar'
+    }
+    upsertEvent(local)
+    return { ok: true, event: local }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('calendar:delete', async (_e, item, email) => {
+  try {
+    const accountEmail = email || item.account_email || getOperationAccountEmail()
+    const creds = await getCredentials(accountEmail)
+    if (!creds) throw new Error(`No credentials for ${accountEmail}`)
+    await deleteCalendarItemRemote(creds.email, creds.password, item)
+    deleteEvent(item.id)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('calendar:respond', async (_e, invite, response, email) => {
+  try {
+    const accountEmail = email || getOperationAccountEmail()
+    const creds = await getCredentials(accountEmail)
+    if (!creds) throw new Error(`No credentials for ${accountEmail}`)
+    const organizerEmail = typeof invite.organizer === 'string'
+      ? invite.organizer
+      : invite.organizer?.email
+    if (!organizerEmail) throw new Error('Invitation organizer is missing')
+    const content = buildCalendarReply(invite, response, creds.email, creds.email)
+    await sendEmail(creds.email, creds.password, {
+      to: organizerEmail,
+      subject: `Re: ${invite.title || 'Invitation'}`,
+      text: `${response}: ${invite.title || 'Invitation'}`,
+      icalEvent: { method: 'REPLY', filename: 'reply.ics', content }
+    })
+    const status = {
+      accepted: 'CONFIRMED',
+      tentative: 'TENTATIVE',
+      declined: 'CANCELLED'
+    }[response]
+    const attendee = {
+      email: creds.email,
+      name: creds.email,
+      partstat: response === 'accepted' ? 'ACCEPTED' : response === 'declined' ? 'DECLINED' : 'TENTATIVE'
+    }
+    const saved = await saveCalendarItem(creds.email, creds.password, {
+      ...invite,
+      account_email: creds.email,
+      status,
+      attendees: [...(invite.attendees || []).filter(value =>
+        (typeof value === 'string' ? value : value.email) !== creds.email
+      ), attendee]
+    })
+    upsertEvent({ ...saved, account_email: creds.email })
+    return { ok: true, event: saved }
   } catch (err) {
     return { ok: false, error: err.message }
   }

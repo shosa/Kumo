@@ -196,10 +196,13 @@ export default function ReadingPane() {
   const [body, setBody] = useState(null)
   const [bodyLoading, setBodyLoading] = useState(false)
   const [attachmentMeta, setAttachmentMeta] = useState([])
+  const [threadMessages, setThreadMessages] = useState([])
   const [imagesBlocked, setImagesBlocked] = useState(state.settings.blockRemoteImages)
   const [imagesLoadedByUser, setImagesLoadedByUser] = useState(false)
   const [filePreview, setFilePreview] = useState(null)   // { src, filename, isPdf, localPath }
   const [loadingIdx, setLoadingIdx] = useState(null)
+  const [respondingInvite, setRespondingInvite] = useState(false)
+  const [inviteResponse, setInviteResponse] = useState('')
   const htmlIframeRef = useRef(null)
 
   // Context menu state
@@ -217,6 +220,7 @@ export default function ReadingPane() {
     if (!msg.folder) { setBodyLoading(false); return }  // guard: no IMAP calls without a folder
     setBody(null)
     setAttachmentMeta([])
+    setInviteResponse('')
     setBodyLoading(true)
     setImagesLoadedByUser(false)
     setImagesBlocked(state.settings.blockRemoteImages)
@@ -246,6 +250,16 @@ export default function ReadingPane() {
       dispatch({ type: 'CLEAR_LOADING' })
     }).catch(() => { setBodyLoading(false); dispatch({ type: 'CLEAR_LOADING' }) })
   }, [msg?.uid, msg?.folder])
+
+  useEffect(() => {
+    if (!msg || state.settings.conversationView === false) {
+      setThreadMessages([])
+      return
+    }
+    window.api.store.getThread(msg.thread_id, msg.message_id).then(result => {
+      if (result.ok) setThreadMessages(result.messages || [])
+    })
+  }, [msg?.thread_id, msg?.message_id, state.settings.conversationView])
 
   useEffect(() => {
     function handleIframeMessage(event) {
@@ -430,6 +444,14 @@ export default function ReadingPane() {
     }
   }
 
+  async function handleInviteResponse(invite, response) {
+    if (respondingInvite) return
+    setRespondingInvite(true)
+    const result = await window.api.calendar.respond(invite, response, state.auth.email)
+    setRespondingInvite(false)
+    if (result.ok) setInviteResponse(response)
+  }
+
   if (!msg) {
     return (
       <div className="reader">
@@ -530,6 +552,26 @@ export default function ReadingPane() {
       )}
 
       {/* Header */}
+      {threadMessages.length > 1 && (
+        <div className="conversation-strip">
+          <div className="conversation-strip__label">
+            {t('conversation.messages', threadMessages.length)}
+          </div>
+          <div className="conversation-strip__items">
+            {threadMessages.map(item => (
+              <button
+                key={`${item.folder}-${item.uid}`}
+                className={`conversation-pill${item.folder === msg.folder && item.uid === msg.uid ? ' active' : ''}`}
+                onClick={() => dispatch({ type: 'SELECT_MESSAGE', payload: item })}
+              >
+                <span>{item.from_name || item.from_email || '?'}</span>
+                <time>{new Date(item.date).toLocaleDateString([], { day: 'numeric', month: 'short' })}</time>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="reader__head fadein">
         <div className="reader__subject">{msg.subject || t('reading.noSubject')}</div>
         <div className="reader__metarow">
@@ -593,6 +635,31 @@ export default function ReadingPane() {
       )}
 
       {/* Email body — iframe UNCHANGED */}
+      {body?.calendarInvites?.map((invite, index) => invite.event && (
+        <div className="invite-card" key={`${invite.event.id}-${index}`}>
+          <div className="invite-card__date">
+            <span>{new Date(invite.event.start_ts).toLocaleDateString(state.settings.language, { day: '2-digit' })}</span>
+            <small>{new Date(invite.event.start_ts).toLocaleDateString(state.settings.language, { month: 'short' })}</small>
+          </div>
+          <div className="invite-card__content">
+            <div className="invite-card__eyebrow">{t('calendar.invitation')}</div>
+            <strong>{invite.event.title}</strong>
+            <span>{formatFullDate(invite.event.start_ts)}{invite.event.location ? ` · ${invite.event.location}` : ''}</span>
+          </div>
+          <div className="invite-card__actions">
+            {inviteResponse ? (
+              <span className="invite-card__status">{t(`calendar.${inviteResponse}`)}</span>
+            ) : (
+              <>
+                <button className="btn btn--primary" disabled={respondingInvite} onClick={() => handleInviteResponse(invite.event, 'accepted')}>{t('calendar.accept')}</button>
+                <button className="btn btn--ghost" disabled={respondingInvite} onClick={() => handleInviteResponse(invite.event, 'tentative')}>{t('calendar.tentative')}</button>
+                <button className="btn btn--ghost btn--danger" disabled={respondingInvite} onClick={() => handleInviteResponse(invite.event, 'declined')}>{t('calendar.decline')}</button>
+              </>
+            )}
+          </div>
+        </div>
+      ))}
+
       <div className="reader__body scroll">
         {bodyLoading ? (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

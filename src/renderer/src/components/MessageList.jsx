@@ -49,6 +49,7 @@ export default function MessageList() {
   const [expandedThreads, setExpandedThreads] = useState(new Set())
   const [isSyncing, setIsSyncing] = useState(false)
   const [arrivalPulse, setArrivalPulse] = useState(false)
+  const [mailRules, setMailRules] = useState([])
 
   const folder = state.folders.selected
 
@@ -75,7 +76,7 @@ export default function MessageList() {
     if (isSyncing || !folder) return
     setIsSyncing(true)
     try {
-      await window.api.imap.syncFolder(folder)
+      if (!folder.startsWith('smart:')) await window.api.imap.syncFolder(folder)
       await loadMessages(1, false)
     } catch { /* ignore */ }
     setIsSyncing(false)
@@ -86,12 +87,17 @@ export default function MessageList() {
   }
 
   useEffect(() => { if (folder) loadMessages(1, false) }, [folder, loadMessages])
+  useEffect(() => {
+    window.api.rules.list().then(result => {
+      if (result.ok) setMailRules(result.rules || [])
+    })
+  }, [state.settings.rulesVersion])
   useEffect(() => { if (state.messages._newMailSignal) loadMessages(1, false) }, [state.messages._newMailSignal, loadMessages])
   useEffect(() => { if (state.messages._syncSignal) loadMessages(1, false) }, [state.messages._syncSignal, loadMessages])
   useEffect(() => { if (listRef.current) listRef.current.scrollTop = 0 }, [folder])
 
   useEffect(() => {
-    if (!folder || state.connectionStatus !== 'connected') return
+    if (!folder || folder.startsWith('smart:') || state.connectionStatus !== 'connected') return
     if (lastAutoSyncFolder.current === folder) return
     lastAutoSyncFolder.current = folder
 
@@ -200,6 +206,7 @@ export default function MessageList() {
     // IMAP server search after 600ms debounce
     const currentFolder = state.folders.selected
     searchDebounce.current = setTimeout(async () => {
+      if (currentFolder.startsWith('smart:')) return
       const sr = await window.api.imap.search(currentFolder, q)
       if (sr.ok && sr.results?.length) {
         const lr2 = await window.api.store.searchLocal(q)
@@ -270,11 +277,18 @@ export default function MessageList() {
   }
 
   const folderObj = state.folders.list.find(f => f.path === folder)
-  const folderDisplayName = folderObj
+  const smartNames = {
+    'smart:unread': t('smart.unread'),
+    'smart:starred': t('smart.starred'),
+    'smart:attachments': t('smart.attachments'),
+    'smart:reply': t('smart.reply')
+  }
+  for (const rule of mailRules) smartNames[`smart:rule-${rule.id}`] = rule.name
+  const folderDisplayName = smartNames[folder] || (folderObj
     ? (folderObj.special_use && FOLDER_LABEL_KEY[folderObj.special_use]
         ? t(FOLDER_LABEL_KEY[folderObj.special_use])
         : (folderObj.name || folder?.split('/').pop() || folder || ''))
-    : (folder?.split('/').pop() || folder || '')
+    : (folder?.split('/').pop() || folder || ''))
 
   const rawMessages = state.messages.searchResults !== null
     ? state.messages.searchResults : state.messages.list
@@ -452,8 +466,16 @@ export default function MessageList() {
                       return next
                     }) : null}
                     onClick={e => handleItemClick(e, msg)}
-                    onDoubleClick={() => {
+                    onDoubleClick={async () => {
                       if (msg.uid > 0 && msg.sync_status !== 'pending') {
+                        const folder = state.folders.list.find(item => item.path === msg.folder)
+                        if (folder?.special_use === '\\Drafts') {
+                          const result = await window.api.drafts.openRemote(msg.folder, msg.uid, state.auth.email)
+                          if (result.ok) {
+                            window.api.window.openCompose({ mode: 'draft', draft: result.draft })
+                          }
+                          return
+                        }
                         window.api.window.openMessage(msg)
                       }
                     }}

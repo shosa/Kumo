@@ -17,9 +17,14 @@ import {
   getSyncState,
   upsertSyncState,
   upsertAttachmentMeta,
-  updateMessageSnippet
+  getAttachmentsMeta,
+  updateMessageSnippet,
+  upsertRemoteDraft,
+  reconcileRemoteDrafts
 } from '../store/db.js'
 import { getServerOrphanUids } from '../optimisticMove.js'
+import { buildRawEmail } from '../smtp/index.js'
+import { parseICalEvents } from '../caldav/client.js'
 
 const IMAP_HOST = 'imap.mail.me.com'
 const IMAP_PORT = 993
@@ -115,6 +120,9 @@ export class ImapClient extends EventEmitter {
     logInfo('IMAP connected', { account: this.email })
     await this._syncFolders()
     await this._syncFolder('INBOX', true)
+    await this.syncDrafts().catch(err => {
+      logWarn('IMAP draft sync failed', { account: this.email, error: err.message })
+    })
     await this._startIdle()
     this.emit('connection-status', 'connected')
   }
@@ -447,7 +455,7 @@ export class ImapClient extends EventEmitter {
     const messageId  = envelope.messageId  || null
     const threadId   = computeThreadId(messageId, inReplyTo, references)
 
-    upsertMessage({
+    const message = {
       uid:           msg.uid,
       folder,
       account_email: this.email,
@@ -465,9 +473,11 @@ export class ImapClient extends EventEmitter {
       thread_id:     threadId,
       in_reply_to:   inReplyTo,
       message_refs:  references
-    })
+    }
+    upsertMessage(message)
 
     this._persistAttachmentMeta(msg, folder, messageId)
+    this.emit('message-persisted', message)
   }
 
   _persistAttachmentMeta(msg, folder, messageId) {
@@ -502,11 +512,14 @@ export class ImapClient extends EventEmitter {
   async fetchBody(folder, uid) {
     // Return cached body if already fetched
     const cached = getMessageBody(folder, uid)
-    if (cached?.body_fetched) {
+    const hasCalendarAttachment = getAttachmentsMeta(uid, folder)
+      .some(attachment => attachment.content_type === 'text/calendar')
+    if (cached?.body_fetched && !hasCalendarAttachment) {
       return {
         html: cached.body_html || null,
         text: cached.body_text || null,
-        attachments: []
+        attachments: [],
+        calendarInvites: []
       }
     }
 
@@ -545,7 +558,88 @@ export class ImapClient extends EventEmitter {
       partId:   a.partId || null
     }))
 
-    return { html, text, attachments }
+    const calendarInvites = (parsed.attachments || [])
+      .filter(attachment => attachment.contentType === 'text/calendar')
+      .map(attachment => ({
+        filename: attachment.filename || 'invite.ics',
+        ics: attachment.content?.toString('utf8') || '',
+        event: parseICalEvents(attachment.content?.toString('utf8') || '')[0] || null
+      }))
+
+    return { html, text, attachments, calendarInvites }
+  }
+
+  async saveDraft(draft) {
+    if (!this.client) throw new Error('Not connected')
+    const folders = getFolders()
+    const draftFolder = folders.find(folder => folder.special_use === '\\Drafts')?.path || 'Drafts'
+    const raw = await buildRawEmail(this.email, {
+      fromName: this.email,
+      to: draft.to_field || undefined,
+      cc: draft.cc_field || undefined,
+      bcc: draft.bcc_field || undefined,
+      subject: draft.subject || '',
+      html: draft.body_html || '',
+      text: String(draft.body_html || '').replace(/<[^>]+>/g, ' '),
+      inReplyTo: draft.in_reply_to || undefined,
+      references: draft.message_refs || undefined,
+      attachments: draft.attachments || []
+    })
+
+    const result = await this.client.append(draftFolder, raw, ['\\Draft'])
+    const newUid = result?.uid || null
+    if (!newUid) throw new Error('Draft append did not return a UID')
+
+    if (draft.remote_uid && draft.remote_folder) {
+      await this.deleteRemoteDraft(draft.remote_folder, draft.remote_uid)
+    }
+    return { folder: draftFolder, uid: newUid }
+  }
+
+  async deleteRemoteDraft(folder, uid) {
+    if (!this.client || !folder || !uid) return
+    const lock = await this.client.getMailboxLock(folder)
+    try {
+      await this.client.messageFlagsAdd([uid], ['\\Deleted'], { uid: true })
+      await this.client.messageDelete([uid], { uid: true })
+    } finally {
+      lock.release()
+    }
+  }
+
+  async syncDrafts() {
+    if (!this.client) return
+    const folder = getFolders().find(item => item.special_use === '\\Drafts')?.path
+    if (!folder) return
+    const lock = await this.client.getMailboxLock(folder)
+    try {
+      const uids = await this.client.search({ all: true }, { uid: true })
+      const recent = (uids || []).slice(-100)
+      if (!recent.length) {
+        reconcileRemoteDrafts(folder, [])
+        return
+      }
+      for await (const message of this.client.fetch(recent, { source: true }, { uid: true })) {
+        if (!message.source) continue
+        const parsed = await simpleParser(message.source)
+        upsertRemoteDraft({
+          account_email: this.email,
+          subject: parsed.subject || '',
+          to_field: parsed.to?.text || '',
+          cc_field: parsed.cc?.text || '',
+          bcc_field: parsed.bcc?.text || '',
+          body_html: parsed.html || parsed.textAsHtml || parsed.text || '',
+          in_reply_to: parsed.inReplyTo || null,
+          message_refs: Array.isArray(parsed.references) ? parsed.references.join(' ') : parsed.references || null,
+          attachments: [],
+          remote_uid: message.uid,
+          remote_folder: folder
+        })
+      }
+      reconcileRemoteDrafts(folder, uids)
+    } finally {
+      lock.release()
+    }
   }
 
   async downloadAttachment(folder, uid, partId, destPath) {

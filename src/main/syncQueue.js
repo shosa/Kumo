@@ -29,12 +29,28 @@ export function enqueueSyncOperation(operation, targetType, data, options = {}) 
     accountEmail,
     folder,
     uid,
-    targetId
+    targetId,
+    availableAt,
+    coalesce = false
   } = options
 
+  let replacedCount = 0
+  if (coalesce && targetId) {
+    const existing = d.prepare(
+      `SELECT COUNT(*) AS count FROM sync_queue WHERE operation = ? AND target_type = ? AND target_id = ?`
+    )
+    existing.bind([operation, targetType, String(targetId)])
+    if (existing.step()) replacedCount = Number(existing.getAsObject().count || 0)
+    existing.free()
+    d.run(
+      `DELETE FROM sync_queue WHERE operation = ? AND target_type = ? AND target_id = ?`,
+      [operation, targetType, String(targetId)]
+    )
+  }
   d.run(`
-    INSERT INTO sync_queue (operation, target_type, target_id, data, account_email, folder, uid)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sync_queue
+      (operation, target_type, target_id, data, account_email, folder, uid, next_retry_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     operation,
     targetType,
@@ -42,7 +58,8 @@ export function enqueueSyncOperation(operation, targetType, data, options = {}) 
     JSON.stringify(data),
     accountEmail || null,
     folder || null,
-    uid || null
+    uid || null,
+    availableAt || null
   ])
   persistDBImmediate()
 
@@ -65,7 +82,7 @@ export function enqueueSyncOperation(operation, targetType, data, options = {}) 
 
   // Notify renderer that a sync operation started
   const mainWindow = getMainWindow()
-  if (mainWindow) {
+  if (mainWindow && replacedCount === 0) {
     mainWindow.webContents.send('sync:operation-start')
   }
 }
@@ -188,8 +205,9 @@ export function addToOutbox(emailData) {
   const d = getDB()
   d.run(`
     INSERT INTO outbox
-    (account_email, to_field, cc_field, bcc_field, subject, body_html, body_text, attachments, in_reply_to, message_refs)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (account_email, to_field, cc_field, bcc_field, subject, body_html, body_text,
+     attachments, in_reply_to, message_refs, send_after)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     emailData.accountEmail,
     emailData.to,
@@ -200,7 +218,8 @@ export function addToOutbox(emailData) {
     emailData.text || null,
     JSON.stringify(emailData.attachments || []),
     emailData.inReplyTo || null,
-    emailData.references || null
+    emailData.references || null,
+    emailData.sendAfter || null
   ])
 
   const result = d.exec(`SELECT last_insert_rowid() as id`)
@@ -293,6 +312,22 @@ export function markOptimisticOperationSynced(operation) {
     return
   }
   persistDBImmediate()
+}
+
+export function cancelOutboxEmail(id) {
+  const d = getDB()
+  const stmt = d.prepare(`SELECT sync_status FROM outbox WHERE id = ?`)
+  stmt.bind([id])
+  const row = stmt.step() ? stmt.getAsObject() : null
+  stmt.free()
+  if (!row || row.sync_status !== 'pending') return false
+  d.run(`DELETE FROM sync_queue WHERE operation = 'sendEmail' AND target_id = ?`, [String(id)])
+  d.run(`UPDATE outbox SET sync_status = 'cancelled' WHERE id = ?`, [id])
+  persistDBImmediate()
+  emitSyncOperationUpdate({ operation: 'sendEmail', targetId: id, status: 'cancelled' })
+  const mainWindow = getMainWindow()
+  mainWindow?.webContents.send('sync:operation-end')
+  return true
 }
 
 export function rollbackQueuedOperation(operation, error) {

@@ -1,5 +1,6 @@
 import { request } from 'https'
 import { URL } from 'url'
+import { randomUUID } from 'crypto'
 import { logCal, logWarn } from '../logger.js'
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
@@ -53,6 +54,98 @@ function unfold(raw) {
   return raw.replace(/\r?\n[ \t]/g, '')
 }
 
+function escapeICal(value) {
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;')
+}
+
+function formatICalDate(timestamp, allDay = false) {
+  const date = new Date(Number(timestamp) || Date.now())
+  if (allDay) {
+    return [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, '0'),
+      String(date.getDate()).padStart(2, '0')
+    ].join('')
+  }
+  return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
+}
+
+function parseMailAddress(rawProp, value) {
+  const cn = rawProp.match(/(?:^|;)CN="?([^";]+)"?/i)?.[1] || ''
+  const partstat = rawProp.match(/(?:^|;)PARTSTAT=([^;:]+)/i)?.[1]?.toUpperCase() || null
+  const email = value.replace(/^MAILTO:/i, '')
+  return { email, name: cn, partstat }
+}
+
+export function buildCalendarObject(item) {
+  const uid = item.id || randomUUID()
+  const type = item.type === 'task' ? 'VTODO' : 'VEVENT'
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Kumo//Mail Client//EN',
+    'CALSCALE:GREGORIAN',
+    `BEGIN:${type}`,
+    `UID:${escapeICal(uid)}`,
+    `DTSTAMP:${formatICalDate(Date.now())}`,
+    `SUMMARY:${escapeICal(item.title)}`
+  ]
+  if (type === 'VEVENT') {
+    lines.push(
+      item.all_day
+        ? `DTSTART;VALUE=DATE:${formatICalDate(item.start_ts, true)}`
+        : `DTSTART:${formatICalDate(item.start_ts)}`,
+      item.all_day
+        ? `DTEND;VALUE=DATE:${formatICalDate(item.end_ts || item.start_ts, true)}`
+        : `DTEND:${formatICalDate(item.end_ts || item.start_ts)}`,
+      `STATUS:${item.status || 'CONFIRMED'}`
+    )
+    if (item.location) lines.push(`LOCATION:${escapeICal(item.location)}`)
+    if (item.organizer) {
+      const organizer = typeof item.organizer === 'string' ? { email: item.organizer } : item.organizer
+      lines.push(`${organizer.name ? `ORGANIZER;CN="${escapeICal(organizer.name)}"` : 'ORGANIZER'}:MAILTO:${organizer.email}`)
+    }
+    for (const attendeeValue of item.attendees || []) {
+      const attendee = typeof attendeeValue === 'string' ? { email: attendeeValue } : attendeeValue
+      if (!attendee.email) continue
+      const params = [
+        attendee.name ? `CN="${escapeICal(attendee.name)}"` : null,
+        attendee.partstat ? `PARTSTAT=${attendee.partstat}` : null,
+        'ROLE=REQ-PARTICIPANT'
+      ].filter(Boolean).join(';')
+      lines.push(`ATTENDEE;${params}:MAILTO:${attendee.email}`)
+    }
+  } else {
+    const due = item.end_ts || item.start_ts
+    if (due) {
+      lines.push(item.all_day
+        ? `DUE;VALUE=DATE:${formatICalDate(due, true)}`
+        : `DUE:${formatICalDate(due)}`)
+    }
+    lines.push(`STATUS:${item.status || 'NEEDS-ACTION'}`)
+  }
+  if (item.description) lines.push(`DESCRIPTION:${escapeICal(item.description)}`)
+  if (item.rrule) lines.push(`RRULE:${item.rrule}`)
+  lines.push(`END:${type}`, 'END:VCALENDAR', '')
+  return { uid, raw: lines.join('\r\n') }
+}
+
+export function buildCalendarReply(invite, response, attendeeEmail, attendeeName = '') {
+  const partstat = {
+    accepted: 'ACCEPTED',
+    tentative: 'TENTATIVE',
+    declined: 'DECLINED'
+  }[response]
+  if (!partstat) throw new Error('Unsupported RSVP response')
+  const attendee = { email: attendeeEmail, name: attendeeName, partstat }
+  const { raw } = buildCalendarObject({ ...invite, attendees: [attendee] })
+  return raw.replace('CALSCALE:GREGORIAN', 'METHOD:REPLY')
+}
+
 // Convert wall-clock time in a named IANA timezone to UTC milliseconds.
 // Uses the "fake-UTC mirror" trick: no dependencies required.
 function wallClockToUTC(year, month, day, hour, min, sec, tzid) {
@@ -104,6 +197,7 @@ function _parseProp(rawProp, val) {
 export function parseICalEvents(icsData) {
   const unfolded = unfold(icsData)
   const items = []
+  const method = unfolded.match(/(?:^|\r?\n)METHOD:([^\r\n]+)/i)?.[1]?.toUpperCase() || null
 
   // ── VEVENT ──────────────────────────────────────────────────────────────────
   for (const block of unfolded.split(/BEGIN:VEVENT/i).slice(1)) {
@@ -122,10 +216,10 @@ export function parseICalEvents(icsData) {
         case 'LOCATION':    ev.location = val; break
         case 'STATUS':      ev.status = val.toUpperCase(); break
         case 'RRULE':       ev.rrule = val; break
-        case 'ORGANIZER':   ev.organizer = val.replace(/^MAILTO:/i, ''); break
+        case 'ORGANIZER':   ev.organizer = parseMailAddress(rawProp, val); break
         case 'DTSTART': { const p = _parseProp(rawProp, val); if (p) { ev.start_ts = p.ts; ev.all_day = p.allDay } break }
         case 'DTEND':   { const p = _parseProp(rawProp, val); if (p)   ev.end_ts = p.ts; break }
-        case 'ATTENDEE': { if (!ev.attendees) ev.attendees = []; ev.attendees.push(val.replace(/^MAILTO:/i, '')); break }
+        case 'ATTENDEE': { if (!ev.attendees) ev.attendees = []; ev.attendees.push(parseMailAddress(rawProp, val)); break }
       }
     }
     if (ev.uid && ev.title) {
@@ -135,7 +229,7 @@ export function parseICalEvents(icsData) {
         start_ts: ev.start_ts || 0, end_ts: ev.end_ts || ev.start_ts || 0,
         all_day: ev.all_day || false, rrule: ev.rrule || null,
         status: ev.status || 'CONFIRMED', organizer: ev.organizer || null,
-        attendees: ev.attendees || []
+        attendees: ev.attendees || [], method
       })
     }
   }
@@ -189,6 +283,21 @@ function extractAllMatches(xml, tag) {
   let m
   while ((m = re.exec(xml)) !== null) matches.push(m[1])
   return matches
+}
+
+function hasWritePrivilege(responseXml) {
+  const privileges = extractXmlProp(responseXml, 'current-user-privilege-set')
+  if (!privileges) return true
+  return /<(?:[^:>]+:)?write(?:-content)?(?:\s|\/|>)/i.test(privileges)
+}
+
+function describeDavError(response) {
+  const errorBlock = extractXmlProp(response.body || '', 'error') || response.body || ''
+  const names = [...errorBlock.matchAll(/<(?:(?:[^:>]+):)?([a-z][a-z0-9-]*)\b[^>]*\/?>/gi)]
+    .map(match => match[1])
+    .filter(name => !['error', 'response', 'responsedescription'].includes(name.toLowerCase()))
+  const detail = [...new Set(names)].slice(0, 3).join(', ')
+  return detail ? `${response.status} (${detail})` : String(response.status)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -264,6 +373,7 @@ export async function discoverCalendars(email, password) {
     <resourcetype/>
     <displayname/>
     <supported-calendar-component-set/>
+    <current-user-privilege-set/>
   </prop>
 </propfind>`)
 
@@ -291,11 +401,20 @@ export async function discoverCalendars(email, password) {
       const displayName = extractXmlProp(r, 'displayname')?.trim()
       const name = displayName || calendarNameFromHref(full)
       const color = calendarColorFromXml(r)
-      calendars.push({ href: full, name, color, supportsEvents, supportsTodos })
+      const writable = hasWritePrivilege(r)
+      calendars.push({ href: full, name, color, supportsEvents, supportsTodos, writable })
     }
   }
 
-  if (calendars.length === 0) calendars.push({ href: calHomeFull, name: 'Calendar' })
+  if (calendars.length === 0) {
+    calendars.push({
+      href: calHomeFull,
+      name: 'Calendar',
+      supportsEvents: true,
+      supportsTodos: false,
+      writable: false
+    })
+  }
 
   return calendars
 }
@@ -429,4 +548,66 @@ export async function syncCalendar(email, password, enabledHrefs = null) {
 
   logCal(`Sync completato: ${allItems.filter(i => i.type !== 'task').length} eventi, ${allItems.filter(i => i.type === 'task').length} promemoria`)
   return { items: allItems, sources }
+}
+
+export async function saveCalendarItem(email, password, item) {
+  const auth = { user: email, pass: password }
+  const isNew = !item.href
+  const calendars = await discoverCalendars(email, password)
+  let targetCalendar = null
+  if (item.calendar_href) {
+    const requested = item.calendar_href.replace(/\/$/, '')
+    targetCalendar = calendars.find(calendar => calendar.href.replace(/\/$/, '') === requested)
+    if (!targetCalendar) throw new Error('Selected iCloud calendar is no longer available')
+    if (targetCalendar.writable === false) throw new Error('Selected iCloud calendar is read-only')
+  } else {
+    targetCalendar = calendars.find(calendar =>
+      calendar.writable !== false &&
+      (item.type === 'task' ? calendar.supportsTodos : calendar.supportsEvents !== false)
+    )
+  }
+  const calendarHref = targetCalendar?.href
+  if (!calendarHref) throw new Error('No writable iCloud calendar found')
+
+  const { uid, raw } = buildCalendarObject(item)
+  const base = calendarHref.endsWith('/') ? calendarHref : `${calendarHref}/`
+  const href = item.href
+    ? new URL(item.href, base).href
+    : new URL(`${encodeURIComponent(uid)}.ics`, base).href
+  const headers = {
+    'Content-Type': 'text/calendar; charset=utf-8',
+    Depth: '0'
+  }
+  if (item.etag) headers['If-Match'] = `"${String(item.etag).replace(/"/g, '')}"`
+  else if (isNew) headers['If-None-Match'] = '*'
+  const response = await followRedirects(href, 'PUT', auth, raw, headers)
+  if (response.status < 200 || response.status >= 300) {
+    logWarn(`CalDAV PUT rifiutato su "${calendarHref}": ${describeDavError(response)}`)
+    throw new Error(`CalDAV PUT failed: ${describeDavError(response)}`)
+  }
+  return {
+    ...item,
+    id: uid,
+    href: response.finalUrl || href,
+    calendar_href: calendarHref,
+    etag: String(response.headers.etag || item.etag || '').replace(/"/g, '')
+  }
+}
+
+export async function deleteCalendarItemRemote(email, password, item) {
+  if (!item?.href) return
+  const base = item.calendar_href?.endsWith('/') ? item.calendar_href : `${item.calendar_href || ''}/`
+  const href = new URL(item.href, base).href
+  const headers = { Depth: '0' }
+  if (item.etag) headers['If-Match'] = `"${String(item.etag).replace(/"/g, '')}"`
+  const response = await followRedirects(
+    href,
+    'DELETE',
+    { user: email, pass: password },
+    null,
+    headers
+  )
+  if (response.status !== 404 && (response.status < 200 || response.status >= 300)) {
+    throw new Error(`CalDAV DELETE failed: ${describeDavError(response)}`)
+  }
 }

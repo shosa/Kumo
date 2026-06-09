@@ -32,12 +32,55 @@ export default function Settings() {
   const [clearingLogs,     setClearingLogs]     = useState(false)
   const [logsCleared,      setLogsCleared]      = useState(false)
   const [storageError,     setStorageError]     = useState('')
+  const [rules,            setRules]            = useState([])
 
   useEffect(() => {
     window.api.store.getDbPath?.().then(r => { if (r?.ok) setDbPath(r.path || '') })
     window.api.updater.version?.().then(v => { if (v) setAppVersion(v) })
     refreshStorageUsage()
+    refreshRules()
   }, [])
+
+  async function refreshRules() {
+    const result = await window.api.rules.list()
+    if (result.ok) setRules(result.rules || [])
+  }
+
+  function createRule() {
+    setRules(previous => [...previous, {
+      name: t('rules.newRule'),
+      enabled: true,
+      match: { from: '' },
+      action: { type: 'markRead' },
+      stop_after: true,
+      isNew: true
+    }])
+  }
+
+  function patchRule(index, patch) {
+    setRules(previous => previous.map((rule, ruleIndex) =>
+      ruleIndex === index ? { ...rule, ...patch } : rule
+    ))
+  }
+
+  async function persistRule(index) {
+    const rule = rules[index]
+    const result = await window.api.rules.save(rule)
+    if (!result.ok) return
+    await refreshRules()
+    update('rulesVersion', Date.now())
+  }
+
+  async function removeRule(index) {
+    const rule = rules[index]
+    if (rule.id) await window.api.rules.delete(rule.id)
+    setRules(previous => previous.filter((_, ruleIndex) => ruleIndex !== index))
+    update('rulesVersion', Date.now())
+  }
+
+  function setRuleMatch(index, field, value) {
+    patchRule(index, { match: value ? { [field]: value } : { [field]: '' } })
+  }
 
   async function refreshStorageUsage() {
     setStorageLoading(true)
@@ -321,6 +364,125 @@ export default function Settings() {
                 </div>
                 <Switch on={s.notificationsEnabled !== false} onChange={() => update('notificationsEnabled', !s.notificationsEnabled)} />
               </div>
+            </div>
+          </div>
+
+          <div className="sset">
+            <div className="sset__label">{t('settings.mailBehavior')}</div>
+            <div className="sset__card">
+              <div className="srow">
+                <div className="srow__txt">
+                  <div className="srow__name">{t('settings.undoSend')}</div>
+                  <div className="srow__desc">{t('settings.undoSendDesc')}</div>
+                </div>
+                <select
+                  value={Number(s.undoSendDelay ?? 10)}
+                  onChange={event => update('undoSendDelay', Number(event.target.value))}
+                  className="settings-select"
+                >
+                  {[0, 5, 10, 20, 30].map(seconds => (
+                    <option key={seconds} value={seconds}>
+                      {seconds === 0 ? t('settings.undoOff') : `${seconds}s`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="srow">
+                <div className="srow__txt">
+                  <div className="srow__name">{t('settings.conversationView')}</div>
+                  <div className="srow__desc">{t('settings.conversationViewDesc')}</div>
+                </div>
+                <Switch
+                  on={s.conversationView !== false}
+                  onChange={() => update('conversationView', s.conversationView === false)}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="sset">
+            <div className="sset__label">{t('rules.title')}</div>
+            <div className="sset__card rules-card">
+              {rules.map((rule, index) => {
+                const matchField = Object.keys(rule.match || {})[0] || 'from'
+                const matchValue = rule.match?.[matchField] ?? ''
+                return (
+                  <div className="rule-editor" key={rule.id || `new-${index}`}>
+                    <div className="rule-editor__top">
+                      <input
+                        className="settings-input"
+                        value={rule.name || ''}
+                        onChange={event => patchRule(index, { name: event.target.value })}
+                        placeholder={t('rules.name')}
+                      />
+                      <Switch
+                        on={rule.enabled !== false}
+                        onChange={() => patchRule(index, { enabled: rule.enabled === false })}
+                      />
+                    </div>
+                    <div className="rule-editor__grid">
+                      <select
+                        className="settings-select"
+                        value={matchField}
+                        onChange={event => setRuleMatch(index, event.target.value, matchValue)}
+                      >
+                        <option value="from">{t('rules.from')}</option>
+                        <option value="subject">{t('rules.subject')}</option>
+                        <option value="text">{t('rules.text')}</option>
+                      </select>
+                      <input
+                        className="settings-input"
+                        value={matchValue}
+                        onChange={event => setRuleMatch(index, matchField, event.target.value)}
+                        placeholder={t('rules.contains')}
+                      />
+                      <select
+                        className="settings-select"
+                        value={rule.action?.type || 'markRead'}
+                        onChange={event => patchRule(index, {
+                          action: event.target.value === 'move'
+                            ? { type: 'move', destination: state.folders.list.find(folder => !folder.special_use)?.path || 'Archive' }
+                            : { type: event.target.value }
+                        })}
+                      >
+                        <option value="markRead">{t('rules.markRead')}</option>
+                        <option value="star">{t('rules.star')}</option>
+                        <option value="move">{t('rules.move')}</option>
+                      </select>
+                      {rule.action?.type === 'move' && (
+                        <select
+                          className="settings-select"
+                          value={rule.action.destination || ''}
+                          onChange={event => patchRule(index, {
+                            action: { ...rule.action, destination: event.target.value }
+                          })}
+                        >
+                          {state.folders.list.filter(folder => !String(folder.path).startsWith('smart:')).map(folder => (
+                            <option key={folder.path} value={folder.path}>
+                              {folder.name || folder.path}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                    <div className="rule-editor__actions">
+                      <button className="act" type="button" onClick={() => removeRule(index)}>
+                        <IconTrash size={14} /> {t('action.delete')}
+                      </button>
+                      <button className="act act--primary" type="button" onClick={() => persistRule(index)}>
+                        <IconCheck size={14} /> {t('settings.save')}
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+              <button className="srow srow--button" type="button" onClick={createRule}>
+                <div className="srow__txt">
+                  <div className="srow__name">{t('rules.add')}</div>
+                  <div className="srow__desc">{t('rules.addDesc')}</div>
+                </div>
+                <span>+</span>
+              </button>
             </div>
           </div>
 

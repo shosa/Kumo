@@ -176,6 +176,13 @@ export async function initDB() {
     logErr('Database migration failed', { version: 8, fatal: false, error: err.message })
   }
 
+  try {
+    _migrate9(db)
+    _migrate10(db)
+  } catch (err) {
+    logErr('Database migration failed', { version: 9, fatal: false, error: err.message })
+  }
+
   persistDB()
   return db
 }
@@ -534,6 +541,50 @@ function _migrate6(d) {
   d.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('schemaVersion', '6')`)
 }
 
+function _migrate9(d) {
+  let ver = 0
+  try {
+    const s = d.prepare(`SELECT value FROM settings WHERE key = 'schemaVersion'`)
+    if (s.step()) ver = parseInt(JSON.parse(s.getAsObject().value), 10) || 0
+    s.free()
+  } catch { /* ignore */ }
+  if (ver >= 9) return
+
+  try { d.run(`ALTER TABLE drafts ADD COLUMN remote_uid INTEGER`) } catch { /* already exists */ }
+  try { d.run(`ALTER TABLE drafts ADD COLUMN remote_folder TEXT`) } catch { /* already exists */ }
+  try { d.run(`ALTER TABLE outbox ADD COLUMN send_after INTEGER`) } catch { /* already exists */ }
+
+  d.run(`
+    CREATE TABLE IF NOT EXISTS mail_rules (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      name          TEXT NOT NULL,
+      enabled       INTEGER DEFAULT 1,
+      match_json    TEXT NOT NULL DEFAULT '{}',
+      action_json   TEXT NOT NULL DEFAULT '{}',
+      stop_after    INTEGER DEFAULT 1,
+      created_at    INTEGER DEFAULT (strftime('%s','now') * 1000),
+      updated_at    INTEGER DEFAULT (strftime('%s','now') * 1000)
+    )
+  `)
+  d.run(`CREATE INDEX IF NOT EXISTS idx_mail_rules_enabled ON mail_rules(enabled, id)`)
+  d.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('undoSendDelay', '10')`)
+  d.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('conversationView', 'true')`)
+  d.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('schemaVersion', '9')`)
+}
+
+function _migrate10(d) {
+  let ver = 0
+  try {
+    const s = d.prepare(`SELECT value FROM settings WHERE key = 'schemaVersion'`)
+    if (s.step()) ver = parseInt(JSON.parse(s.getAsObject().value), 10) || 0
+    s.free()
+  } catch { /* ignore */ }
+  if (ver >= 10) return
+
+  try { d.run(`ALTER TABLE calendar_sources ADD COLUMN writable INTEGER DEFAULT 1`) } catch { /* already exists */ }
+  d.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('schemaVersion', '10')`)
+}
+
 export function getDB() {
   if (!db) throw new Error('DB not initialized — call initDB() first')
   return db
@@ -630,7 +681,8 @@ export function getMessages(folder, limit, offset) {
   const d = getDB()
   const stmt = d.prepare(`
     SELECT uid, folder, message_id, subject, from_name, from_email,
-           to_addresses, cc_addresses, date, flags, snippet, has_attachments, size
+           to_addresses, cc_addresses, date, flags, snippet, has_attachments, size,
+           thread_id, in_reply_to, message_refs, sync_status
     FROM messages
     WHERE folder = ?
     ORDER BY date DESC
@@ -645,6 +697,94 @@ export function getMessages(folder, limit, offset) {
     cc_addresses: JSON.parse(r.cc_addresses || '[]'),
     has_attachments: r.has_attachments === 1
   }))
+}
+
+function hydrateMessageRow(row) {
+  return {
+    ...row,
+    flags: JSON.parse(row.flags || '[]'),
+    to_addresses: JSON.parse(row.to_addresses || '[]'),
+    cc_addresses: JSON.parse(row.cc_addresses || '[]'),
+    has_attachments: row.has_attachments === 1
+  }
+}
+
+export function getThreadMessages(threadId, messageId = null) {
+  const d = getDB()
+  const stmt = d.prepare(`
+    SELECT uid, folder, message_id, subject, from_name, from_email,
+           to_addresses, cc_addresses, date, flags, snippet, has_attachments, size,
+           body_html, body_text, body_fetched, thread_id, in_reply_to, message_refs,
+           sync_status
+    FROM messages
+    WHERE thread_id = ?
+       OR message_id = ?
+       OR in_reply_to = ?
+       OR message_refs LIKE ?
+    ORDER BY date ASC
+  `)
+  const identity = threadId || messageId || ''
+  stmt.bind([identity, identity, identity, `%${identity}%`])
+  return allRows(stmt).map(hydrateMessageRow)
+}
+
+function buildSmartWhere(definition = {}) {
+  const clauses = []
+  const params = []
+  if (definition.unread === true) clauses.push(`flags NOT LIKE '%\\\\Seen%'`)
+  if (definition.starred === true) clauses.push(`flags LIKE '%\\\\Flagged%'`)
+  if (definition.hasAttachments === true) clauses.push(`has_attachments = 1`)
+  if (definition.from) {
+    clauses.push(`LOWER(from_email) LIKE ?`)
+    params.push(`%${String(definition.from).toLowerCase()}%`)
+  }
+  if (definition.subject) {
+    clauses.push(`LOWER(subject) LIKE ?`)
+    params.push(`%${String(definition.subject).toLowerCase()}%`)
+  }
+  if (definition.text) {
+    clauses.push(`(LOWER(subject) LIKE ? OR LOWER(snippet) LIKE ?)`)
+    const value = `%${String(definition.text).toLowerCase()}%`
+    params.push(value, value)
+  }
+  if (definition.folder) {
+    clauses.push(`folder = ?`)
+    params.push(definition.folder)
+  }
+  if (definition.needsReply === true) {
+    clauses.push(`flags NOT LIKE '%\\\\Seen%'`)
+    clauses.push(`folder NOT IN (
+      SELECT path FROM folders
+      WHERE special_use IN ('\\\\Sent', '\\\\Drafts', '\\\\Trash', '\\\\Junk')
+    )`)
+    clauses.push(`date >= ?`)
+    params.push(Date.now() - 14 * 86400000)
+  }
+  return { where: clauses.length ? clauses.join(' AND ') : '1=1', params }
+}
+
+export function getSmartMessages(definition, limit, offset) {
+  const d = getDB()
+  const { where, params } = buildSmartWhere(definition)
+  const stmt = d.prepare(`
+    SELECT uid, folder, message_id, subject, from_name, from_email,
+           to_addresses, cc_addresses, date, flags, snippet, has_attachments, size,
+           thread_id, in_reply_to, message_refs, sync_status
+    FROM messages
+    WHERE ${where}
+    ORDER BY date DESC
+    LIMIT ? OFFSET ?
+  `)
+  stmt.bind([...params, limit, offset])
+  return allRows(stmt).map(hydrateMessageRow)
+}
+
+export function getSmartMessageCount(definition) {
+  const d = getDB()
+  const { where, params } = buildSmartWhere(definition)
+  const stmt = d.prepare(`SELECT COUNT(*) AS count FROM messages WHERE ${where}`)
+  stmt.bind(params)
+  return oneRow(stmt)?.count || 0
 }
 
 export function getMessageCount(folder) {
@@ -1264,25 +1404,34 @@ export function upsertDraft(draft) {
       UPDATE drafts SET
         account_email = ?, subject = ?, to_field = ?, cc_field = ?, bcc_field = ?,
         body_html = ?, in_reply_to = ?, message_refs = ?, attachments = ?,
+        remote_uid = COALESCE(?, remote_uid), remote_folder = COALESCE(?, remote_folder),
+        sync_status = ?,
         updated_at = strftime('%s','now') * 1000
       WHERE id = ?
     `, [
       draft.account_email || null, draft.subject || '', draft.to_field || '',
       draft.cc_field || '', draft.bcc_field || '', draft.body_html || '',
       draft.in_reply_to || null, draft.message_refs || null,
-      JSON.stringify(draft.attachments || []), draft.id
+      JSON.stringify(draft.attachments || []),
+      draft.remote_uid || null, draft.remote_folder || null,
+      draft.sync_status || 'pending',
+      draft.id
     ])
     scheduleSave()
     return draft.id
   }
   d.run(`
-    INSERT INTO drafts (account_email, subject, to_field, cc_field, bcc_field, body_html, in_reply_to, message_refs, attachments)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO drafts
+      (account_email, subject, to_field, cc_field, bcc_field, body_html,
+       in_reply_to, message_refs, attachments, remote_uid, remote_folder, sync_status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     draft.account_email || null, draft.subject || '', draft.to_field || '',
     draft.cc_field || '', draft.bcc_field || '', draft.body_html || '',
     draft.in_reply_to || null, draft.message_refs || null,
-    JSON.stringify(draft.attachments || [])
+    JSON.stringify(draft.attachments || []),
+    draft.remote_uid || null, draft.remote_folder || null,
+    draft.sync_status || 'pending'
   ])
   scheduleSave()
   const rows = d.exec(`SELECT last_insert_rowid() as id`)
@@ -1307,6 +1456,129 @@ export function deleteDraft(id) {
   const d = getDB()
   d.run(`DELETE FROM drafts WHERE id = ?`, [id])
   scheduleSave()
+}
+
+export function getDraft(id) {
+  const d = getDB()
+  const stmt = d.prepare(`SELECT * FROM drafts WHERE id = ?`)
+  stmt.bind([id])
+  const row = oneRow(stmt)
+  return row ? { ...row, attachments: JSON.parse(row.attachments || '[]') } : null
+}
+
+export function findDraftByRemote(folder, uid) {
+  const d = getDB()
+  const stmt = d.prepare(`SELECT * FROM drafts WHERE remote_folder = ? AND remote_uid = ?`)
+  stmt.bind([folder, uid])
+  const row = oneRow(stmt)
+  return row ? { ...row, attachments: JSON.parse(row.attachments || '[]') } : null
+}
+
+export function markDraftSynced(id, remoteFolder, remoteUid) {
+  const d = getDB()
+  d.run(`
+    UPDATE drafts
+    SET remote_folder = ?, remote_uid = ?, sync_status = 'synced',
+        updated_at = strftime('%s','now') * 1000
+    WHERE id = ?
+  `, [remoteFolder, remoteUid, id])
+  persistDBImmediate()
+}
+
+export function upsertRemoteDraft(draft) {
+  const existing = findDraftByRemote(draft.remote_folder, draft.remote_uid)
+  return upsertDraft({
+    ...draft,
+    id: existing?.id,
+    sync_status: 'synced'
+  })
+}
+
+export function reconcileRemoteDrafts(folder, remoteUids) {
+  const d = getDB()
+  const uids = [...new Set((remoteUids || []).map(Number).filter(Number.isFinite))]
+  if (uids.length === 0) {
+    d.run(`DELETE FROM drafts WHERE remote_folder = ? AND sync_status = 'synced'`, [folder])
+  } else {
+    const placeholders = uids.map(() => '?').join(',')
+    d.run(`
+      DELETE FROM drafts
+      WHERE remote_folder = ? AND sync_status = 'synced'
+        AND remote_uid NOT IN (${placeholders})
+    `, [folder, ...uids])
+  }
+  scheduleSave()
+}
+
+// ── local mail rules ─────────────────────────────────────────────────────────
+
+function hydrateRule(row) {
+  return {
+    ...row,
+    enabled: row.enabled === 1,
+    stop_after: row.stop_after === 1,
+    match: JSON.parse(row.match_json || '{}'),
+    action: JSON.parse(row.action_json || '{}')
+  }
+}
+
+export function getMailRules(enabledOnly = false) {
+  const d = getDB()
+  const stmt = d.prepare(`
+    SELECT * FROM mail_rules
+    ${enabledOnly ? 'WHERE enabled = 1' : ''}
+    ORDER BY id ASC
+  `)
+  return allRows(stmt).map(hydrateRule)
+}
+
+export function saveMailRule(rule) {
+  const d = getDB()
+  if (rule.id) {
+    d.run(`
+      UPDATE mail_rules
+      SET name = ?, enabled = ?, match_json = ?, action_json = ?, stop_after = ?,
+          updated_at = strftime('%s','now') * 1000
+      WHERE id = ?
+    `, [
+      rule.name || 'Rule', rule.enabled === false ? 0 : 1,
+      JSON.stringify(rule.match || {}), JSON.stringify(rule.action || {}),
+      rule.stop_after === false ? 0 : 1, rule.id
+    ])
+    scheduleSave()
+    return rule.id
+  }
+  d.run(`
+    INSERT INTO mail_rules (name, enabled, match_json, action_json, stop_after)
+    VALUES (?, ?, ?, ?, ?)
+  `, [
+    rule.name || 'Rule', rule.enabled === false ? 0 : 1,
+    JSON.stringify(rule.match || {}), JSON.stringify(rule.action || {}),
+    rule.stop_after === false ? 0 : 1
+  ])
+  scheduleSave()
+  return d.exec(`SELECT last_insert_rowid()`)[0]?.values?.[0]?.[0] || null
+}
+
+export function deleteMailRule(id) {
+  const d = getDB()
+  d.run(`DELETE FROM mail_rules WHERE id = ?`, [id])
+  scheduleSave()
+}
+
+export function messageMatchesRule(message, rule) {
+  const match = rule?.match || {}
+  const from = String(message.from_email || '').toLowerCase()
+  const subject = String(message.subject || '').toLowerCase()
+  const snippet = String(message.snippet || '').toLowerCase()
+  if (match.from && !from.includes(String(match.from).toLowerCase())) return false
+  if (match.subject && !subject.includes(String(match.subject).toLowerCase())) return false
+  if (match.text) {
+    const value = String(match.text).toLowerCase()
+    if (!subject.includes(value) && !snippet.includes(value)) return false
+  }
+  if (match.hasAttachments === true && !message.has_attachments) return false
+  return true
 }
 
 // ── attachment metadata helpers ───────────────────────────────────────────────
@@ -1471,17 +1743,20 @@ export function deleteContact(id) {
 export function upsertCalendarSource(src) {
   const d = getDB()
   d.run(`
-    INSERT INTO calendar_sources (href, account_email, name, color, supports_events, supports_todos, enabled, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+    INSERT INTO calendar_sources
+      (href, account_email, name, color, supports_events, supports_todos, writable, enabled, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
     ON CONFLICT(href) DO UPDATE SET
       name            = excluded.name,
       color           = excluded.color,
       supports_events = excluded.supports_events,
       supports_todos  = excluded.supports_todos,
+      writable        = excluded.writable,
       updated_at      = excluded.updated_at
   `, [
     src.href, src.account_email || null, src.name, src.color || '#0071e3',
-    src.supportsEvents ? 1 : 0, src.supportsTodos ? 1 : 0, Date.now()
+    src.supportsEvents ? 1 : 0, src.supportsTodos ? 1 : 0,
+    src.writable === false ? 0 : 1, Date.now()
   ])
   scheduleSave()
 }
@@ -1532,7 +1807,10 @@ export function upsertEvent(event) {
     event.title || '', event.description || null, event.location || null,
     event.start_ts || 0, event.end_ts || 0, event.all_day ? 1 : 0,
     event.rrule || null, event.status || 'CONFIRMED',
-    event.organizer || null, JSON.stringify(event.attendees || []),
+    event.organizer
+      ? (typeof event.organizer === 'string' ? event.organizer : JSON.stringify(event.organizer))
+      : null,
+    JSON.stringify(event.attendees || []),
     event.etag || null, event.href || null,
     event.type || 'event', Date.now()
   ])
@@ -1549,7 +1827,13 @@ export function getEvents(accountEmail, fromTs, toTs) {
   if (accountEmail) stmt.bind([accountEmail, from, to])
   else stmt.bind([from, to])
   const rows = allRows(stmt)
-  return rows.map(r => ({ ...r, attendees: JSON.parse(r.attendees || '[]') }))
+  return rows.map(r => {
+    let organizer = r.organizer
+    if (organizer?.startsWith('{')) {
+      try { organizer = JSON.parse(organizer) } catch { /* keep stored value */ }
+    }
+    return { ...r, organizer, attendees: JSON.parse(r.attendees || '[]') }
+  })
 }
 
 export function deleteEvents(accountEmail, calendarId) {
@@ -1559,5 +1843,11 @@ export function deleteEvents(accountEmail, calendarId) {
   } else {
     d.run(`DELETE FROM calendar_events WHERE account_email = ?`, [accountEmail])
   }
+  scheduleSave()
+}
+
+export function deleteEvent(id) {
+  const d = getDB()
+  d.run(`DELETE FROM calendar_events WHERE id = ?`, [id])
   scheduleSave()
 }

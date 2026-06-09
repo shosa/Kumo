@@ -286,5 +286,13 @@
   "calendar.hide": "Gizle",
   "calendar.show": "Göster",
   "calendar.reminders": "Hatırlatıcılar",
-  "calendar.hasEvents": "Etkinlik var"
+  "calendar.hasEvents": "Etkinlik var",
+  "action.cancel": "İptal", "action.save": "Kaydet",
+  "send.queued": "İleti sıraya alındı", "send.undo": "Geri al",
+  "smart.title": "Akıllı klasörler", "smart.unread": "Okunmamış", "smart.starred": "Yıldızlı", "smart.attachments": "Ekli", "smart.reply": "Yanıt bekliyor",
+  "conversation.messages": "{0} ileti",
+  "settings.mailBehavior": "Posta davranışı", "settings.undoSend": "Göndermeyi geri al", "settings.undoSendDesc": "Gönderimin iptal edilebilmesi için teslimatı geciktirir", "settings.undoOff": "Kapalı", "settings.conversationView": "Konuşma görünümü", "settings.conversationViewDesc": "İlgili iletileri tek bir konuşmada gruplar",
+  "rules.title": "Yerel kurallar", "rules.newRule": "Yeni kural", "rules.name": "Kural adı", "rules.from": "Gönderen", "rules.subject": "Konu", "rules.text": "İleti metni", "rules.contains": "İçerir", "rules.markRead": "Okundu işaretle", "rules.star": "Yıldızla", "rules.move": "Klasöre taşı", "rules.add": "Kural ekle", "rules.addDesc": "Kurallar yerel olarak çalışır ve işlemi sunucuyla eşitler",
+  "contacts.new": "Yeni kişi", "contacts.edit": "Kişiyi düzenle", "contacts.displayName": "Görünen ad", "contacts.firstName": "Ad", "contacts.lastName": "Soyad", "contacts.jobTitle": "Unvan", "contacts.deleteConfirm": "Bu kişi iCloud'dan silinsin mi?", "contacts.saveFailed": "Kişi kaydedilemedi",
+  "calendar.new": "Yeni öğe", "calendar.edit": "Düzenle", "calendar.title": "Başlık", "calendar.type": "Tür", "calendar.event": "Etkinlik", "calendar.task": "Anımsatıcı", "calendar.calendar": "Takvim", "calendar.allDay": "Tüm gün", "calendar.start": "Başlangıç", "calendar.end": "Bitiş", "calendar.due": "Son tarih", "calendar.location": "Konum", "calendar.description": "Açıklama", "calendar.deleteConfirm": "Bu öğe iCloud'dan silinsin mi?", "calendar.saveFailed": "Takvim öğesi kaydedilemedi", "calendar.invitation": "Takvim daveti", "calendar.accept": "Kabul et", "calendar.decline": "Reddet", "calendar.tentative": "Belki", "calendar.accepted": "Kabul edildi", "calendar.declined": "Reddedildi"
 }

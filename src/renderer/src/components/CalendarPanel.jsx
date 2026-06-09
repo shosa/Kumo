@@ -1,7 +1,10 @@
 import React, { useEffect, useCallback, useState } from 'react'
 import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
-import { IconCalendar, IconClock, IconPin, IconEdit, IconChevronLeft, IconChevronRight, IconSync, IconCheck } from './Icons'
+import {
+  IconCalendar, IconClock, IconPin, IconEdit, IconChevronLeft, IconChevronRight,
+  IconSync, IconCheck, IconCompose, IconTrash, IconClose
+} from './Icons'
 
 const AVATAR_COLORS = ['#0071e3','#5e5ebc','#bf5af2','#ff6b35','#30a46c','#e0820b','#e5484d','#0e9bd6']
 function avatarColor(name = '') {
@@ -42,6 +45,113 @@ function groupEventsByDate(events, locale) {
     .map(([, group]) => group)
 }
 
+function toInputDate(timestamp, allDay) {
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  if (allDay) {
+    return [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, '0'),
+      String(date.getDate()).padStart(2, '0')
+    ].join('-')
+  }
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+  return local.toISOString().slice(0, 16)
+}
+
+function fromInputDate(value, allDay) {
+  if (!value) return 0
+  return allDay
+    ? new Date(`${value}T00:00:00`).getTime()
+    : new Date(value).getTime()
+}
+
+function CalendarEditor({ item, sources, accountEmail, onClose, onSaved, t }) {
+  const writableSources = sources.filter(source => source.writable !== 0)
+  const defaultSource = writableSources.find(source =>
+    item?.type === 'task' ? source.supports_todos : source.supports_events
+  ) || writableSources[0]
+  const [form, setForm] = useState(() => ({
+    ...item,
+    type: item?.type || 'event',
+    title: item?.title || '',
+    description: item?.description || '',
+    location: item?.location || '',
+    all_day: Boolean(item?.all_day),
+    start: toInputDate(item?.start_ts || Date.now(), Boolean(item?.all_day)),
+    end: toInputDate(item?.end_ts || Date.now() + 3600000, Boolean(item?.all_day)),
+    calendar_href: item?.calendar_href || defaultSource?.href || '',
+    calendar_id: item?.calendar_id || defaultSource?.name || ''
+  }))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  function update(field, value) {
+    setForm(current => {
+      const next = { ...current, [field]: value }
+      if (field === 'calendar_href') {
+        next.calendar_id = sources.find(source => source.href === value)?.name || current.calendar_id
+      }
+      if (field === 'all_day') {
+        next.start = toInputDate(fromInputDate(current.start, current.all_day), value)
+        next.end = toInputDate(fromInputDate(current.end, current.all_day), value)
+      }
+      return next
+    })
+  }
+
+  async function save(event) {
+    event.preventDefault()
+    if (!form.title.trim()) return
+    setSaving(true)
+    setError('')
+    const payload = {
+      ...form,
+      account_email: accountEmail,
+      start_ts: fromInputDate(form.start, form.all_day),
+      end_ts: fromInputDate(form.type === 'task' ? form.start : (form.end || form.start), form.all_day),
+      status: form.status || (form.type === 'task' ? 'NEEDS-ACTION' : 'CONFIRMED')
+    }
+    const result = await window.api.calendar.save(payload, accountEmail)
+    setSaving(false)
+    if (!result.ok) {
+      setError(result.error || t('calendar.saveFailed'))
+      return
+    }
+    onSaved(result.event)
+  }
+
+  return (
+    <div className="editor-overlay" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+      <form className="editor-card" onSubmit={save}>
+        <div className="editor-card__head">
+          <div>
+            <div className="editor-card__eyebrow">{t('nav.calendar')}</div>
+            <h2>{item?.id ? t('calendar.edit') : t('calendar.new')}</h2>
+          </div>
+          <button className="icon-btn" type="button" onClick={onClose}><IconClose size={17} /></button>
+        </div>
+        <div className="editor-grid">
+          <label className="editor-grid__wide"><span>{t('calendar.title')}</span><input autoFocus value={form.title} onChange={event => update('title', event.target.value)} /></label>
+          <label><span>{t('calendar.type')}</span><select value={form.type} onChange={event => update('type', event.target.value)}><option value="event">{t('calendar.event')}</option><option value="task">{t('calendar.task')}</option></select></label>
+          <label><span>{t('calendar.calendar')}</span><select value={form.calendar_href} onChange={event => update('calendar_href', event.target.value)}>{writableSources.filter(source => form.type === 'task' ? source.supports_todos : source.supports_events !== 0).map(source => <option key={source.href} value={source.href}>{source.name}</option>)}</select></label>
+          <label className="editor-check"><input type="checkbox" checked={form.all_day} onChange={event => update('all_day', event.target.checked)} /><span>{t('calendar.allDay')}</span></label>
+          <span />
+          <label><span>{form.type === 'task' ? t('calendar.due') : t('calendar.start')}</span><input type={form.all_day ? 'date' : 'datetime-local'} value={form.start} onChange={event => update('start', event.target.value)} /></label>
+          {form.type !== 'task' && <label><span>{t('calendar.end')}</span><input type={form.all_day ? 'date' : 'datetime-local'} value={form.end} onChange={event => update('end', event.target.value)} /></label>}
+          {form.type !== 'task' && <label className="editor-grid__wide"><span>{t('calendar.location')}</span><input value={form.location} onChange={event => update('location', event.target.value)} /></label>}
+          <label className="editor-grid__wide"><span>{t('calendar.description')}</span><textarea rows="4" value={form.description} onChange={event => update('description', event.target.value)} /></label>
+        </div>
+        {error && <div className="editor-error">{error}</div>}
+        <div className="editor-card__actions">
+          <button className="btn btn--ghost" type="button" onClick={onClose}>{t('action.cancel')}</button>
+          <button className="btn btn--primary" disabled={saving} type="submit">{saving ? t('toolbar.syncing') : t('action.save')}</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 export default function CalendarPanel() {
   const state = useAppState()
   const dispatch = useAppDispatch()
@@ -52,6 +162,7 @@ export default function CalendarPanel() {
   const [selectedDay, setSelectedDay] = useState(null) // Date object or null = show all upcoming
   const [syncing, setSyncing] = useState(false)
   const [sources, setSources] = useState([])
+  const [editing, setEditing] = useState(null)
 
   useEffect(() => {
     if (state.auth.email) {
@@ -171,6 +282,28 @@ export default function CalendarPanel() {
     })
 
   const eventGroups = groupEventsByDate(visibleEvents, locale)
+  const hasWritableEventCalendar = sources.some(source => source.writable !== 0 && source.supports_events !== 0)
+  const selectedSource = selectedEvent
+    ? sources.find(source => source.href === selectedEvent.calendar_href)
+    : null
+  const selectedEventWritable = !selectedSource || selectedSource.writable !== 0
+
+  function handleSaved(event) {
+    const events = state.calendar.events.some(item => item.id === event.id)
+      ? state.calendar.events.map(item => item.id === event.id ? event : item)
+      : [...state.calendar.events, event]
+    dispatch({ type: 'SET_CALENDAR_EVENTS', payload: events })
+    setSelectedEvent(event)
+    setEditing(null)
+  }
+
+  async function handleDelete(item) {
+    if (!window.confirm(t('calendar.deleteConfirm'))) return
+    const result = await window.api.calendar.delete(item, state.auth.email)
+    if (!result.ok) return
+    dispatch({ type: 'SET_CALENDAR_EVENTS', payload: state.calendar.events.filter(event => event.id !== item.id) })
+    setSelectedEvent(null)
+  }
 
   // Collect day numbers in current month that have events or task due dates
   const eventDays = new Set(
@@ -201,6 +334,9 @@ export default function CalendarPanel() {
               title={syncing ? t('toolbar.syncing') : t('toolbar.sync')}
             >
               <IconSync size={16} className={syncing ? 'spin' : ''} />
+            </button>
+            <button className="icon-btn" disabled={!hasWritableEventCalendar} onClick={() => setEditing({})} title={t('calendar.new')}>
+              <IconCompose size={16} />
             </button>
           </div>
           <div className="mini__grid">
@@ -313,6 +449,12 @@ export default function CalendarPanel() {
         {selectedEvent ? (
           selectedEvent.type === 'task' ? (
             <div className="fadein" key={selectedEvent.id}>
+              {selectedEventWritable && (
+                <div className="detail-toolbar">
+                  <button className="btn btn--ghost" onClick={() => setEditing(selectedEvent)}><IconEdit size={14} /> {t('calendar.edit')}</button>
+                  <button className="btn btn--ghost btn--danger" onClick={() => handleDelete(selectedEvent)}><IconTrash size={14} /> {t('action.delete')}</button>
+                </div>
+              )}
               <div className="evd__chip evd__chip--task">
                 <div className="ev__check ev__check--lg">{selectedEvent.status === 'COMPLETED' && <IconCheck size={11} />}</div>
                 {t('calendar.reminders')}
@@ -330,6 +472,12 @@ export default function CalendarPanel() {
             </div>
           ) : (
             <div className="fadein" key={selectedEvent.title || selectedEvent.summary}>
+              {selectedEventWritable && (
+                <div className="detail-toolbar">
+                  <button className="btn btn--ghost" onClick={() => setEditing(selectedEvent)}><IconEdit size={14} /> {t('calendar.edit')}</button>
+                  <button className="btn btn--ghost btn--danger" onClick={() => handleDelete(selectedEvent)}><IconTrash size={14} /> {t('action.delete')}</button>
+                </div>
+              )}
               <div className="evd__chip">
                 <span style={{ width: 8, height: 8, borderRadius: 99, background: selectedEvent.color || 'var(--accent)', display: 'inline-block' }} />
                 {formatEventDate(selectedEvent, locale)}
@@ -364,6 +512,16 @@ export default function CalendarPanel() {
           </div>
         )}
       </div>
+      {editing && (
+        <CalendarEditor
+          item={editing.id ? editing : null}
+          sources={sources}
+          accountEmail={state.auth.email}
+          t={t}
+          onClose={() => setEditing(null)}
+          onSaved={handleSaved}
+        />
+      )}
     </div>
   )
 }

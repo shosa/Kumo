@@ -47,7 +47,11 @@ const initialState = {
     showAvatars: true,
     showSenderLogos: false,
     showPreview: true,
-    updatesEnabled: true
+    updatesEnabled: true,
+    undoSendDelay: 10,
+    conversationView: true,
+    smartFoldersExpanded: true,
+    rulesVersion: 0
   },
   view: 'mail',        // 'mail' | 'contacts' | 'calendar'
   contacts: {

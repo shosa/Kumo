@@ -286,5 +286,13 @@
   "calendar.hide": "隐藏",
   "calendar.show": "显示",
   "calendar.reminders": "提醒",
-  "calendar.hasEvents": "有日程"
+  "calendar.hasEvents": "有日程",
+  "action.cancel": "取消", "action.save": "保存",
+  "send.queued": "邮件已排队", "send.undo": "撤销",
+  "smart.title": "智能文件夹", "smart.unread": "未读", "smart.starred": "已加星标", "smart.attachments": "带附件", "smart.reply": "需要回复",
+  "conversation.messages": "{0} 封邮件",
+  "settings.mailBehavior": "邮件行为", "settings.undoSend": "撤销发送", "settings.undoSendDesc": "延迟投递，以便取消发送", "settings.undoOff": "关闭", "settings.conversationView": "会话视图", "settings.conversationViewDesc": "将相关邮件归入同一会话",
+  "rules.title": "本地规则", "rules.newRule": "新建规则", "rules.name": "规则名称", "rules.from": "发件人", "rules.subject": "主题", "rules.text": "邮件正文", "rules.contains": "包含", "rules.markRead": "标为已读", "rules.star": "加星标", "rules.move": "移至文件夹", "rules.add": "添加规则", "rules.addDesc": "规则在本地运行，并将操作同步到服务器",
+  "contacts.new": "新建联系人", "contacts.edit": "编辑联系人", "contacts.displayName": "显示名称", "contacts.firstName": "名", "contacts.lastName": "姓", "contacts.jobTitle": "职位", "contacts.deleteConfirm": "从 iCloud 删除此联系人？", "contacts.saveFailed": "无法保存联系人",
+  "calendar.new": "新建项目", "calendar.edit": "编辑", "calendar.title": "标题", "calendar.type": "类型", "calendar.event": "日程", "calendar.task": "提醒事项", "calendar.calendar": "日历", "calendar.allDay": "全天", "calendar.start": "开始", "calendar.end": "结束", "calendar.due": "到期", "calendar.location": "地点", "calendar.description": "描述", "calendar.deleteConfirm": "从 iCloud 删除此项目？", "calendar.saveFailed": "无法保存日历项目", "calendar.invitation": "日历邀请", "calendar.accept": "接受", "calendar.decline": "拒绝", "calendar.tentative": "待定", "calendar.accepted": "已接受", "calendar.declined": "已拒绝"
 }

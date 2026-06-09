@@ -154,21 +154,21 @@ function RecipientField({ label, addresses, onChange, placeholder, trailing, con
 }
 
 export default function ComposeViewerApp({ composeData }) {
-  const { mode = 'new', message: msg, body, to: initialTo = '' } = composeData || {}
+  const { mode = 'new', message: msg, body, to: initialTo = '', draft = null } = composeData || {}
 
   const [settings, setSettings] = useState({ theme: 'light', signature: '', language: 'en-US' })
   const [contacts, setContacts] = useState([])
   const [accountEmail, setAccountEmail] = useState('')
-  const [to, setTo] = useState(() => parseAddressString(initialTo || (msg && mode !== 'new' ? buildReplyTo(mode, msg, '') : '')))
-  const [cc, setCc] = useState([])
-  const [bcc, setBcc] = useState([])
-  const [subject, setSubject] = useState(msg && mode !== 'new' ? buildReplySubject(mode, msg.subject) : '')
+  const [to, setTo] = useState(() => parseAddressString(draft?.to_field || initialTo || (msg && mode !== 'new' ? buildReplyTo(mode, msg, '') : '')))
+  const [cc, setCc] = useState(() => parseAddressString(draft?.cc_field || ''))
+  const [bcc, setBcc] = useState(() => parseAddressString(draft?.bcc_field || ''))
+  const [subject, setSubject] = useState(draft?.subject || (msg && mode !== 'new' ? buildReplySubject(mode, msg.subject) : ''))
   const [showCcBcc, setShowCcBcc] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState(null)
   const [sent, setSent] = useState(false)
-  const [attachments, setAttachments] = useState([])
-  const [draftId, setDraftId] = useState(null)
+  const [attachments, setAttachments] = useState(draft?.attachments || [])
+  const [draftId, setDraftId] = useState(draft?.id || null)
   const [bodyVersion, setBodyVersion] = useState(0)
   const [contextMenu, setContextMenu] = useState(null)
   const [showPicker, setShowPicker] = useState(false)
@@ -209,7 +209,7 @@ export default function ComposeViewerApp({ composeData }) {
     })
     return text
   }
-  const quotedHtml = buildQuotedMessage(mode, msg, body || msg?.body, {
+  const quotedHtml = mode === 'draft' ? '' : buildQuotedMessage(mode, msg, body || msg?.body, {
     locale: settings.language,
     translate: t
   })
@@ -236,11 +236,15 @@ export default function ComposeViewerApp({ composeData }) {
   }
 
   useEffect(() => {
+    if (mode === 'draft' && draft) {
+      setEditorContent(draft.body_html || '<p></p>')
+      return
+    }
     const sig = settings.signature
       ? `<p></p><p>--</p><p>${settings.signature}</p>`
       : '<p></p>'
     setEditorContent(sig)
-  }, [mode, msg, settings.signature])
+  }, [mode, msg, settings.signature, draft])
 
   async function handleAttachFiles() {
     const result = await window.api.dialog.pickFiles()
@@ -267,8 +271,8 @@ export default function ComposeViewerApp({ composeData }) {
         cc_field: formatAddresses(cc),
         bcc_field: formatAddresses(bcc),
         body_html: html,
-        in_reply_to: msg?.message_id || null,
-        message_refs: msg?.message_id || null,
+        in_reply_to: draft?.in_reply_to || msg?.message_id || null,
+        message_refs: draft?.message_refs || msg?.message_id || null,
         attachments
       }
       const result = await window.api.drafts.save(draft)
@@ -309,8 +313,8 @@ export default function ComposeViewerApp({ composeData }) {
       html,
       text,
       fromName,
-      inReplyTo: msg?.message_id || undefined,
-      references: msg?.message_id || undefined,
+      inReplyTo: draft?.in_reply_to || msg?.message_id || undefined,
+      references: draft?.message_refs || msg?.message_id || undefined,
       attachments: attachments.map(a => ({ filename: a.name, path: a.path }))
     }
 
@@ -337,8 +341,8 @@ export default function ComposeViewerApp({ composeData }) {
       cc_field: formatAddresses(cc),
       bcc_field: formatAddresses(bcc),
       body_html: html,
-      in_reply_to: msg?.message_id || null,
-      message_refs: msg?.message_id || null,
+      in_reply_to: draft?.in_reply_to || msg?.message_id || null,
+      message_refs: draft?.message_refs || msg?.message_id || null,
       attachments
     }
     await window.api.drafts.save(draft)
@@ -385,6 +389,7 @@ export default function ComposeViewerApp({ composeData }) {
   const placeholderText = t('compose.placeholder')
 
   const windowTitle = (() => {
+    if (mode === 'draft') return subject || t('compose.title.new')
     if (mode === 'new') return t('compose.title.new')
     const prefix = mode === 'forward' ? 'Fwd:' : 'Re:'
     const suffix = mode === 'replyAll' ? ` ${t('compose.title.replyAll')}` : ''

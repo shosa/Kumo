@@ -10,7 +10,12 @@ import {
 import { logSync, logErr } from './logger.js'
 import { sendEmail } from './smtp/index.js'
 import { getCredentials } from './auth/index.js'
-import { reconcileOptimisticMove, removeOptimisticMoveCopies } from './store/db.js'
+import {
+  getDraft,
+  markDraftSynced,
+  reconcileOptimisticMove,
+  removeOptimisticMoveCopies
+} from './store/db.js'
 import { normalizeUidMap } from './optimisticMove.js'
 
 let runnerInterval = null
@@ -24,7 +29,9 @@ const IMAP_OPERATIONS = new Set([
   'markJunk',
   'bulkSetFlags',
   'bulkDelete',
-  'bulkMove'
+  'bulkMove',
+  'saveDraft',
+  'deleteDraft'
 ])
 
 export function startSyncRunner(imapClients, coordinator = null) {
@@ -166,6 +173,18 @@ async function dispatch(op, imapClients) {
       await sendEmail(creds.email, creds.password, data.mailOptions)
       break
     }
+    case 'saveDraft': {
+      if (!client) throw new Error(`No IMAP client for ${account_email}`)
+      const draft = getDraft(data.draftId)
+      if (!draft) break
+      const remote = await client.saveDraft(draft)
+      markDraftSynced(draft.id, remote.folder, remote.uid)
+      break
+    }
+    case 'deleteDraft':
+      if (!client) throw new Error(`No IMAP client for ${account_email}`)
+      await client.deleteRemoteDraft(data.remoteFolder, data.remoteUid)
+      break
     default:
       throw new Error(`Unknown operation: ${operation}`)
   }

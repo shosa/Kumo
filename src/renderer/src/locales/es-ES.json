@@ -286,5 +286,13 @@
   "calendar.hide": "Ocultar",
   "calendar.show": "Mostrar",
   "calendar.reminders": "Recordatorios",
-  "calendar.hasEvents": "Tiene eventos"
+  "calendar.hasEvents": "Tiene eventos",
+  "action.cancel": "Cancelar", "action.save": "Guardar",
+  "send.queued": "Mensaje en cola", "send.undo": "Deshacer",
+  "smart.title": "Carpetas inteligentes", "smart.unread": "No leídos", "smart.starred": "Destacados", "smart.attachments": "Con adjuntos", "smart.reply": "Requiere respuesta",
+  "conversation.messages": "{0} mensajes",
+  "settings.mailBehavior": "Comportamiento del correo", "settings.undoSend": "Deshacer envío", "settings.undoSendDesc": "Retrasa la entrega para poder cancelar el envío", "settings.undoOff": "Desactivado", "settings.conversationView": "Vista de conversación", "settings.conversationViewDesc": "Agrupa los mensajes relacionados en una conversación",
+  "rules.title": "Reglas locales", "rules.newRule": "Nueva regla", "rules.name": "Nombre de la regla", "rules.from": "Remitente", "rules.subject": "Asunto", "rules.text": "Texto del mensaje", "rules.contains": "Contiene", "rules.markRead": "Marcar como leído", "rules.star": "Destacar", "rules.move": "Mover a carpeta", "rules.add": "Añadir regla", "rules.addDesc": "Las reglas se ejecutan localmente y sincronizan la acción con el servidor",
+  "contacts.new": "Nuevo contacto", "contacts.edit": "Editar contacto", "contacts.displayName": "Nombre visible", "contacts.firstName": "Nombre", "contacts.lastName": "Apellidos", "contacts.jobTitle": "Cargo", "contacts.deleteConfirm": "¿Eliminar este contacto de iCloud?", "contacts.saveFailed": "No se pudo guardar el contacto",
+  "calendar.new": "Nuevo elemento", "calendar.edit": "Editar", "calendar.title": "Título", "calendar.type": "Tipo", "calendar.event": "Evento", "calendar.task": "Recordatorio", "calendar.calendar": "Calendario", "calendar.allDay": "Todo el día", "calendar.start": "Inicio", "calendar.end": "Fin", "calendar.due": "Vencimiento", "calendar.location": "Ubicación", "calendar.description": "Descripción", "calendar.deleteConfirm": "¿Eliminar este elemento de iCloud?", "calendar.saveFailed": "No se pudo guardar el elemento", "calendar.invitation": "Invitación de calendario", "calendar.accept": "Aceptar", "calendar.decline": "Rechazar", "calendar.tentative": "Quizá", "calendar.accepted": "Aceptado", "calendar.declined": "Rechazado"
 }

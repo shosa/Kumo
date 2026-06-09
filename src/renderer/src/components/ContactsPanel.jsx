@@ -1,7 +1,10 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
-import { IconSearch, IconContacts, IconMail, IconPhone, IconBuilding, IconPin, IconSync } from './Icons'
+import {
+  IconSearch, IconContacts, IconMail, IconPhone, IconBuilding, IconPin,
+  IconSync, IconCompose, IconEdit, IconTrash, IconClose
+} from './Icons'
 
 const AVATAR_COLORS = ['#0071e3','#5e5ebc','#bf5af2','#ff6b35','#30a46c','#e0820b','#e5484d','#0e9bd6']
 
@@ -24,12 +27,83 @@ function formatBirthday(val) {
   return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3])).toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
+function ContactEditor({ contact, onClose, onSaved, t, accountEmail }) {
+  const [form, setForm] = useState(() => ({
+    ...contact,
+    display_name: contact?.display_name || '',
+    first_name: contact?.first_name || '',
+    last_name: contact?.last_name || '',
+    email: contact?.email || '',
+    phone: contact?.phone || '',
+    organization: contact?.organization || '',
+    title: contact?.title || '',
+    birthday: contact?.birthday || '',
+    notes: contact?.notes || ''
+  }))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  function update(field, value) {
+    setForm(current => ({ ...current, [field]: value }))
+  }
+
+  async function save(event) {
+    event.preventDefault()
+    if (!form.display_name.trim() && !form.email.trim()) return
+    setSaving(true)
+    setError('')
+    const result = await window.api.contacts.save({
+      ...form,
+      account_email: accountEmail,
+      emails: form.email ? [form.email] : [],
+      phones: form.phone ? [form.phone] : []
+    }, accountEmail)
+    setSaving(false)
+    if (!result.ok) {
+      setError(result.error || t('contacts.saveFailed'))
+      return
+    }
+    onSaved(result.contact)
+  }
+
+  return (
+    <div className="editor-overlay" onMouseDown={event => event.target === event.currentTarget && onClose()}>
+      <form className="editor-card" onSubmit={save}>
+        <div className="editor-card__head">
+          <div>
+            <div className="editor-card__eyebrow">{t('nav.contacts')}</div>
+            <h2>{contact?.id ? t('contacts.edit') : t('contacts.new')}</h2>
+          </div>
+          <button className="icon-btn" type="button" onClick={onClose}><IconClose size={17} /></button>
+        </div>
+        <div className="editor-grid">
+          <label><span>{t('contacts.displayName')}</span><input autoFocus value={form.display_name} onChange={event => update('display_name', event.target.value)} /></label>
+          <label><span>{t('contacts.fieldEmail')}</span><input type="email" value={form.email} onChange={event => update('email', event.target.value)} /></label>
+          <label><span>{t('contacts.firstName')}</span><input value={form.first_name} onChange={event => update('first_name', event.target.value)} /></label>
+          <label><span>{t('contacts.lastName')}</span><input value={form.last_name} onChange={event => update('last_name', event.target.value)} /></label>
+          <label><span>{t('contacts.fieldPhone')}</span><input value={form.phone} onChange={event => update('phone', event.target.value)} /></label>
+          <label><span>{t('contacts.fieldCompany')}</span><input value={form.organization} onChange={event => update('organization', event.target.value)} /></label>
+          <label><span>{t('contacts.jobTitle')}</span><input value={form.title} onChange={event => update('title', event.target.value)} /></label>
+          <label><span>{t('contacts.fieldBirthday')}</span><input type="date" value={form.birthday} onChange={event => update('birthday', event.target.value)} /></label>
+          <label className="editor-grid__wide"><span>{t('contacts.fieldNotes')}</span><textarea rows="4" value={form.notes} onChange={event => update('notes', event.target.value)} /></label>
+        </div>
+        {error && <div className="editor-error">{error}</div>}
+        <div className="editor-card__actions">
+          <button className="btn btn--ghost" type="button" onClick={onClose}>{t('action.cancel')}</button>
+          <button className="btn btn--primary" disabled={saving} type="submit">{saving ? t('toolbar.syncing') : t('action.save')}</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 export default function ContactsPanel() {
   const state = useAppState()
   const dispatch = useAppDispatch()
   const t = useTranslation()
   const [searchQuery, setSearchQuery] = useState('')
   const [syncing, setSyncing] = useState(false)
+  const [editing, setEditing] = useState(null)
 
   async function handleSync() {
     if (syncing) return
@@ -96,6 +170,23 @@ export default function ContactsPanel() {
     window.api.window.openCompose({ mode: 'new', to: email })
   }
 
+  function handleSaved(contact) {
+    const list = state.contacts.list.some(item => item.id === contact.id)
+      ? state.contacts.list.map(item => item.id === contact.id ? contact : item)
+      : [...state.contacts.list, contact]
+    dispatch({ type: 'SET_CONTACTS', payload: list })
+    dispatch({ type: 'SELECT_CONTACT', payload: contact })
+    setEditing(null)
+  }
+
+  async function handleDelete(contact) {
+    if (!window.confirm(t('contacts.deleteConfirm'))) return
+    const result = await window.api.contacts.delete(contact, state.auth.email)
+    if (!result.ok) return
+    dispatch({ type: 'SET_CONTACTS', payload: state.contacts.list.filter(item => item.id !== contact.id) })
+    dispatch({ type: 'SELECT_CONTACT', payload: null })
+  }
+
   return (
     <div className="full">
       {/* left column */}
@@ -110,6 +201,9 @@ export default function ContactsPanel() {
               title={syncing ? t('toolbar.syncing') : t('toolbar.sync')}
             >
               <IconSync size={16} className={syncing ? 'spin' : ''} />
+            </button>
+            <button className="icon-btn" onClick={() => setEditing({})} title={t('contacts.new')}>
+              <IconCompose size={16} />
             </button>
           </div>
           <div className="search">
@@ -190,6 +284,12 @@ export default function ContactsPanel() {
                 <IconPhone size={15} /> {t('action.phone')}
               </button>
             )}
+            <button className="act" onClick={() => setEditing(selected)}>
+              <IconEdit size={15} /> {t('contacts.edit')}
+            </button>
+            <button className="act act--danger" onClick={() => handleDelete(selected)}>
+              <IconTrash size={15} /> {t('action.delete')}
+            </button>
           </div>
           <div className="cdetail__card">
             {(selected.emails || (selected.email ? [selected.email] : [])).filter(Boolean).map((email, i) => (
@@ -268,6 +368,15 @@ export default function ContactsPanel() {
             <div style={{ fontSize: 13 }}>{t('contacts.selectContact')}</div>
           </div>
         </div>
+      )}
+      {editing && (
+        <ContactEditor
+          contact={editing.id ? editing : null}
+          accountEmail={state.auth.email}
+          t={t}
+          onClose={() => setEditing(null)}
+          onSaved={handleSaved}
+        />
       )}
     </div>
   )

@@ -286,5 +286,13 @@
   "calendar.hide": "非表示",
   "calendar.show": "表示",
   "calendar.reminders": "リマインダー",
-  "calendar.hasEvents": "イベントあり"
+  "calendar.hasEvents": "イベントあり",
+  "action.cancel": "キャンセル", "action.save": "保存",
+  "send.queued": "送信待ち", "send.undo": "取り消す",
+  "smart.title": "スマートフォルダ", "smart.unread": "未読", "smart.starred": "スター付き", "smart.attachments": "添付ファイルあり", "smart.reply": "返信が必要",
+  "conversation.messages": "{0}件のメッセージ",
+  "settings.mailBehavior": "メールの動作", "settings.undoSend": "送信を取り消す", "settings.undoSendDesc": "送信を遅らせて取り消せるようにします", "settings.undoOff": "オフ", "settings.conversationView": "スレッド表示", "settings.conversationViewDesc": "関連するメッセージをまとめて表示します",
+  "rules.title": "ローカルルール", "rules.newRule": "新しいルール", "rules.name": "ルール名", "rules.from": "送信者", "rules.subject": "件名", "rules.text": "本文", "rules.contains": "含む", "rules.markRead": "既読にする", "rules.star": "スターを付ける", "rules.move": "フォルダへ移動", "rules.add": "ルールを追加", "rules.addDesc": "ルールはローカルで実行され、操作はサーバーに同期されます",
+  "contacts.new": "新しい連絡先", "contacts.edit": "連絡先を編集", "contacts.displayName": "表示名", "contacts.firstName": "名", "contacts.lastName": "姓", "contacts.jobTitle": "役職", "contacts.deleteConfirm": "この連絡先をiCloudから削除しますか？", "contacts.saveFailed": "連絡先を保存できませんでした",
+  "calendar.new": "新しい項目", "calendar.edit": "編集", "calendar.title": "タイトル", "calendar.type": "種類", "calendar.event": "予定", "calendar.task": "リマインダー", "calendar.calendar": "カレンダー", "calendar.allDay": "終日", "calendar.start": "開始", "calendar.end": "終了", "calendar.due": "期限", "calendar.location": "場所", "calendar.description": "説明", "calendar.deleteConfirm": "この項目をiCloudから削除しますか？", "calendar.saveFailed": "カレンダー項目を保存できませんでした", "calendar.invitation": "カレンダー招待", "calendar.accept": "承諾", "calendar.decline": "辞退", "calendar.tentative": "未定", "calendar.accepted": "承諾済み", "calendar.declined": "辞退済み"
 }

@@ -286,5 +286,13 @@
   "calendar.hide": "숨기기",
   "calendar.show": "표시",
   "calendar.reminders": "알림",
-  "calendar.hasEvents": "일정 있음"
+  "calendar.hasEvents": "일정 있음",
+  "action.cancel": "취소", "action.save": "저장",
+  "send.queued": "메시지 전송 대기 중", "send.undo": "실행 취소",
+  "smart.title": "스마트 폴더", "smart.unread": "읽지 않음", "smart.starred": "별표", "smart.attachments": "첨부 파일 있음", "smart.reply": "답장 필요",
+  "conversation.messages": "메시지 {0}개",
+  "settings.mailBehavior": "메일 동작", "settings.undoSend": "보내기 취소", "settings.undoSendDesc": "전송을 지연해 취소할 수 있게 합니다", "settings.undoOff": "끔", "settings.conversationView": "대화 보기", "settings.conversationViewDesc": "관련 메시지를 하나의 대화로 묶습니다",
+  "rules.title": "로컬 규칙", "rules.newRule": "새 규칙", "rules.name": "규칙 이름", "rules.from": "보낸 사람", "rules.subject": "제목", "rules.text": "메시지 내용", "rules.contains": "포함", "rules.markRead": "읽음으로 표시", "rules.star": "별표 표시", "rules.move": "폴더로 이동", "rules.add": "규칙 추가", "rules.addDesc": "규칙은 로컬에서 실행되고 작업은 서버와 동기화됩니다",
+  "contacts.new": "새 연락처", "contacts.edit": "연락처 편집", "contacts.displayName": "표시 이름", "contacts.firstName": "이름", "contacts.lastName": "성", "contacts.jobTitle": "직책", "contacts.deleteConfirm": "이 연락처를 iCloud에서 삭제할까요?", "contacts.saveFailed": "연락처를 저장할 수 없습니다",
+  "calendar.new": "새 항목", "calendar.edit": "편집", "calendar.title": "제목", "calendar.type": "유형", "calendar.event": "이벤트", "calendar.task": "미리 알림", "calendar.calendar": "캘린더", "calendar.allDay": "하루 종일", "calendar.start": "시작", "calendar.end": "종료", "calendar.due": "기한", "calendar.location": "위치", "calendar.description": "설명", "calendar.deleteConfirm": "이 항목을 iCloud에서 삭제할까요?", "calendar.saveFailed": "캘린더 항목을 저장할 수 없습니다", "calendar.invitation": "캘린더 초대", "calendar.accept": "수락", "calendar.decline": "거절", "calendar.tentative": "미정", "calendar.accepted": "수락됨", "calendar.declined": "거절됨"
 }

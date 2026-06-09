@@ -12,6 +12,7 @@ import Settings from './components/Settings'
 import TitleBar from './components/TitleBar'
 import UpdateBanner from './components/UpdateBanner'
 import CommandPalette from './components/CommandPalette'
+import UndoSendToast from './components/UndoSendToast'
 import { useAppearance } from './appearance'
 import { normalizeConnectionStatus } from './connectionStatus'
 import { animateMessageRemoval } from './motion'
@@ -253,6 +254,7 @@ if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
     <div className="app-root">
       <TitleBar connectionStatus={state.connectionStatus} />
       <UpdateBanner />
+      <UndoSendToast />
       <div className="app-layout">
         <Rail onSearch={() => setCmdkOpen(true)} />
         {view === 'mail' && (

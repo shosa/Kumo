@@ -1,5 +1,6 @@
 import { request } from 'https'
 import { URL } from 'url'
+import { randomUUID } from 'crypto'
 import { logContact, logWarn, logErr } from '../logger.js'
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
@@ -64,6 +65,38 @@ function decodeXmlEntities(str) {
 
 function unfoldVCard(raw) {
   return raw.replace(/\r?\n[ \t]/g, '')
+}
+
+function escapeVCard(value) {
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;')
+}
+
+export function buildVCard(contact) {
+  const uid = contact.id || randomUUID()
+  const firstName = contact.first_name || ''
+  const lastName = contact.last_name || ''
+  const displayName = contact.display_name || [firstName, lastName].filter(Boolean).join(' ') || contact.email || ''
+  const emails = [...new Set([contact.email, ...(contact.emails || [])].filter(Boolean))]
+  const phones = [...new Set([contact.phone, ...(contact.phones || [])].filter(Boolean))]
+  const lines = [
+    'BEGIN:VCARD',
+    'VERSION:3.0',
+    `UID:${escapeVCard(uid)}`,
+    `FN:${escapeVCard(displayName)}`,
+    `N:${escapeVCard(lastName)};${escapeVCard(firstName)};;;`,
+    ...emails.map((email, index) => `EMAIL;TYPE=${index === 0 ? 'PREF,INTERNET' : 'INTERNET'}:${escapeVCard(email)}`),
+    ...phones.map((phone, index) => `TEL;TYPE=${index === 0 ? 'PREF,CELL' : 'CELL'}:${escapeVCard(phone)}`)
+  ]
+  if (contact.organization) lines.push(`ORG:${escapeVCard(contact.organization)}`)
+  if (contact.title) lines.push(`TITLE:${escapeVCard(contact.title)}`)
+  if (contact.notes) lines.push(`NOTE:${escapeVCard(contact.notes)}`)
+  if (contact.birthday) lines.push(`BDAY:${escapeVCard(contact.birthday)}`)
+  lines.push('END:VCARD', '')
+  return { uid, raw: lines.join('\r\n') }
 }
 
 function _parseParams(propPart) {
@@ -380,4 +413,50 @@ export async function syncContacts(email, password) {
 
   logContact(`Sync contatti completato: ${allContacts.length} contatti totali`)
   return allContacts
+}
+
+export async function saveContact(email, password, contact) {
+  const auth = { user: email, pass: password }
+  const { uid, raw } = buildVCard(contact)
+  const isNew = !contact.href
+  let href = contact.href
+  if (!href) {
+    const addressBooks = await discoverAddressBook(email, password)
+    const base = addressBooks[0]?.href
+    if (!base) throw new Error('No writable iCloud address book found')
+    href = new URL(`${encodeURIComponent(uid)}.vcf`, base.endsWith('/') ? base : `${base}/`).href
+  }
+  const headers = {
+    'Content-Type': 'text/vcard; charset=utf-8',
+    Depth: '0'
+  }
+  if (contact.etag) headers['If-Match'] = `"${String(contact.etag).replace(/"/g, '')}"`
+  else if (isNew) headers['If-None-Match'] = '*'
+  const response = await followRedirects(href, 'PUT', auth, raw, headers)
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`CardDAV PUT failed: ${response.status}`)
+  }
+  return {
+    ...contact,
+    id: uid,
+    href: response.finalUrl || href,
+    etag: String(response.headers.etag || contact.etag || '').replace(/"/g, ''),
+    vcard: raw
+  }
+}
+
+export async function deleteContactRemote(email, password, contact) {
+  if (!contact?.href) return
+  const headers = { Depth: '0' }
+  if (contact.etag) headers['If-Match'] = `"${String(contact.etag).replace(/"/g, '')}"`
+  const response = await followRedirects(
+    contact.href,
+    'DELETE',
+    { user: email, pass: password },
+    null,
+    headers
+  )
+  if (response.status !== 404 && (response.status < 200 || response.status >= 300)) {
+    throw new Error(`CardDAV DELETE failed: ${response.status}`)
+  }
 }

@@ -286,5 +286,13 @@
   "calendar.hide": "Verbergen",
   "calendar.show": "Weergeven",
   "calendar.reminders": "Herinneringen",
-  "calendar.hasEvents": "Heeft evenementen"
+  "calendar.hasEvents": "Heeft evenementen",
+  "action.cancel": "Annuleren", "action.save": "Opslaan",
+  "send.queued": "Bericht in wachtrij", "send.undo": "Ongedaan maken",
+  "smart.title": "Slimme mappen", "smart.unread": "Ongelezen", "smart.starred": "Met ster", "smart.attachments": "Met bijlagen", "smart.reply": "Antwoord nodig",
+  "conversation.messages": "{0} berichten",
+  "settings.mailBehavior": "E-mailgedrag", "settings.undoSend": "Verzenden ongedaan maken", "settings.undoSendDesc": "Stelt verzending uit zodat deze kan worden geannuleerd", "settings.undoOff": "Uit", "settings.conversationView": "Gespreksweergave", "settings.conversationViewDesc": "Groepeert gerelateerde berichten in één gesprek",
+  "rules.title": "Lokale regels", "rules.newRule": "Nieuwe regel", "rules.name": "Regelnaam", "rules.from": "Afzender", "rules.subject": "Onderwerp", "rules.text": "Berichttekst", "rules.contains": "Bevat", "rules.markRead": "Markeren als gelezen", "rules.star": "Ster toevoegen", "rules.move": "Naar map verplaatsen", "rules.add": "Regel toevoegen", "rules.addDesc": "Regels worden lokaal uitgevoerd en synchroniseren de actie met de server",
+  "contacts.new": "Nieuw contact", "contacts.edit": "Contact bewerken", "contacts.displayName": "Weergavenaam", "contacts.firstName": "Voornaam", "contacts.lastName": "Achternaam", "contacts.jobTitle": "Functie", "contacts.deleteConfirm": "Dit contact uit iCloud verwijderen?", "contacts.saveFailed": "Contact kon niet worden opgeslagen",
+  "calendar.new": "Nieuw item", "calendar.edit": "Bewerken", "calendar.title": "Titel", "calendar.type": "Type", "calendar.event": "Afspraak", "calendar.task": "Herinnering", "calendar.calendar": "Agenda", "calendar.allDay": "Hele dag", "calendar.start": "Begin", "calendar.end": "Einde", "calendar.due": "Vervalt", "calendar.location": "Locatie", "calendar.description": "Beschrijving", "calendar.deleteConfirm": "Dit item uit iCloud verwijderen?", "calendar.saveFailed": "Agenda-item kon niet worden opgeslagen", "calendar.invitation": "Agenda-uitnodiging", "calendar.accept": "Accepteren", "calendar.decline": "Weigeren", "calendar.tentative": "Misschien", "calendar.accepted": "Geaccepteerd", "calendar.declined": "Geweigerd"
 }

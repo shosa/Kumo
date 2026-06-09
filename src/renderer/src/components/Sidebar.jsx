@@ -4,7 +4,7 @@ import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
 import {
   IconCompose, IconSettings, IconRefresh,
-  IconSignOut, IconMarkRead, IconNoSymbol, IconEdit
+  IconSignOut, IconMarkRead, IconNoSymbol, IconEdit, IconChevronRight
 } from './Icons'
 import { getFolderIcon } from './folderIcons'
 import { animateMessageRemoval } from '../motion'
@@ -142,6 +142,7 @@ export default function Sidebar() {
   const [dragOverPath, setDragOverPath] = useState(null)
   const [isSyncing, setIsSyncing] = useState(false)
   const [pendingOps, setPendingOps] = useState(0)
+  const [rules, setRules] = useState([])
 
   const loadFolders = useCallback(async () => {
     const result = await window.api.imap.getFolders()
@@ -179,6 +180,12 @@ export default function Sidebar() {
     const offEnd   = window.api.on('sync:operation-end',   refresh)
     return () => { offStart?.(); offEnd?.() }
   }, [])
+
+  useEffect(() => {
+    window.api.rules.list().then(result => {
+      if (result.ok) setRules(result.rules || [])
+    })
+  }, [state.settings.rulesVersion])
 
   function selectFolder(path) {
     if (path === state.folders.selected) return
@@ -249,8 +256,26 @@ export default function Sidebar() {
   const sorted = [...state.folders.list].sort((a, b) => folderSortKey(a) - folderSortKey(b))
   const systemFolders = sorted.filter(f => f.special_use)
   const customFolders = sorted.filter(f => !f.special_use)
+  const smartFolders = [
+    { path: 'smart:unread', name: t('smart.unread'), smart: true },
+    { path: 'smart:starred', name: t('smart.starred'), smart: true },
+    { path: 'smart:attachments', name: t('smart.attachments'), smart: true },
+    { path: 'smart:reply', name: t('smart.reply'), smart: true },
+    ...rules.filter(rule => rule.enabled).map(rule => ({
+      path: `smart:rule-${rule.id}`,
+      name: rule.name,
+      smart: true
+    }))
+  ]
 
   const isGlobalSyncing = state.sync?.operationsInProgress > 0
+  const smartExpanded = state.settings.smartFoldersExpanded !== false
+
+  function toggleSmartFolders() {
+    const next = !smartExpanded
+    dispatch({ type: 'UPDATE_SETTINGS', payload: { smartFoldersExpanded: next } })
+    window.api.settings.save({ smartFoldersExpanded: next })
+  }
 
   return (
     <div className="sidebar" onClick={() => { setFolderMenu(null) }}>
@@ -294,6 +319,34 @@ export default function Sidebar() {
             ))}
           </>
         )}
+
+        <button
+          className="sidebar__group-label sidebar__group-toggle"
+          style={{ marginTop: '8px' }}
+          onClick={toggleSmartFolders}
+          aria-expanded={smartExpanded}
+        >
+          <IconChevronRight
+            size={12}
+            className={`sidebar__group-chevron${smartExpanded ? ' expanded' : ''}`}
+          />
+          <span>{t('smart.title')}</span>
+        </button>
+        <div className={`sidebar__collapsible${smartExpanded ? ' expanded' : ''}`}>
+          <div className="sidebar__collapsible-inner">
+            {smartFolders.map(folder => (
+              <FolderItem
+                key={folder.path}
+                folder={folder}
+                selected={state.folders.selected === folder.path}
+                dragOver={false}
+                onClick={() => selectFolder(folder.path)}
+                onContextMenu={e => e.preventDefault()}
+                t={t}
+              />
+            ))}
+          </div>
+        </div>
 
         {customFolders.length > 0 && (
           <>

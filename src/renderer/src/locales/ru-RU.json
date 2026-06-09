@@ -286,5 +286,13 @@
   "calendar.hide": "Скрыть",
   "calendar.show": "Показать",
   "calendar.reminders": "Напоминания",
-  "calendar.hasEvents": "Есть события"
+  "calendar.hasEvents": "Есть события",
+  "action.cancel": "Отмена", "action.save": "Сохранить",
+  "send.queued": "Сообщение в очереди", "send.undo": "Отменить",
+  "smart.title": "Умные папки", "smart.unread": "Непрочитанные", "smart.starred": "Избранные", "smart.attachments": "С вложениями", "smart.reply": "Требуют ответа",
+  "conversation.messages": "Сообщений: {0}",
+  "settings.mailBehavior": "Поведение почты", "settings.undoSend": "Отмена отправки", "settings.undoSendDesc": "Задерживает отправку, чтобы её можно было отменить", "settings.undoOff": "Выключено", "settings.conversationView": "Вид беседы", "settings.conversationViewDesc": "Группирует связанные сообщения в одну беседу",
+  "rules.title": "Локальные правила", "rules.newRule": "Новое правило", "rules.name": "Название правила", "rules.from": "Отправитель", "rules.subject": "Тема", "rules.text": "Текст сообщения", "rules.contains": "Содержит", "rules.markRead": "Отметить прочитанным", "rules.star": "Добавить в избранное", "rules.move": "Переместить в папку", "rules.add": "Добавить правило", "rules.addDesc": "Правила выполняются локально, а действие синхронизируется с сервером",
+  "contacts.new": "Новый контакт", "contacts.edit": "Изменить контакт", "contacts.displayName": "Отображаемое имя", "contacts.firstName": "Имя", "contacts.lastName": "Фамилия", "contacts.jobTitle": "Должность", "contacts.deleteConfirm": "Удалить этот контакт из iCloud?", "contacts.saveFailed": "Не удалось сохранить контакт",
+  "calendar.new": "Новый элемент", "calendar.edit": "Изменить", "calendar.title": "Название", "calendar.type": "Тип", "calendar.event": "Событие", "calendar.task": "Напоминание", "calendar.calendar": "Календарь", "calendar.allDay": "Весь день", "calendar.start": "Начало", "calendar.end": "Окончание", "calendar.due": "Срок", "calendar.location": "Место", "calendar.description": "Описание", "calendar.deleteConfirm": "Удалить этот элемент из iCloud?", "calendar.saveFailed": "Не удалось сохранить элемент календаря", "calendar.invitation": "Приглашение в календарь", "calendar.accept": "Принять", "calendar.decline": "Отклонить", "calendar.tentative": "Возможно", "calendar.accepted": "Принято", "calendar.declined": "Отклонено"
 }

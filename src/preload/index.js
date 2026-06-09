@@ -65,13 +65,17 @@ contextBridge.exposeInMainWorld('api', {
     send: (email, password, mailOptions) =>
       ipcRenderer.invoke('smtp:send', email, password, mailOptions),
     sendOptimistic: (outboxEmail) =>
-      ipcRenderer.invoke('smtp:send-optimistic', outboxEmail)
+      ipcRenderer.invoke('smtp:send-optimistic', outboxEmail),
+    cancelSend: (outboxId) =>
+      ipcRenderer.invoke('smtp:cancel-send', outboxId)
   },
 
   // ── Local store ─────────────────────────────────────────────────────────────
   store: {
     searchLocal: (query) =>
       ipcRenderer.invoke('store:search-local', query),
+    getThread: (threadId, messageId) =>
+      ipcRenderer.invoke('store:get-thread', threadId, messageId),
     getCachedFolders: () =>
       ipcRenderer.invoke('store:get-cached-folders'),
     clearBodyCache: () =>
@@ -108,7 +112,14 @@ contextBridge.exposeInMainWorld('api', {
   drafts: {
     list:   (accountEmail) => ipcRenderer.invoke('drafts:list', accountEmail),
     save:   (draft)        => ipcRenderer.invoke('drafts:save', draft),
-    delete: (id)           => ipcRenderer.invoke('drafts:delete', id)
+    delete: (id)           => ipcRenderer.invoke('drafts:delete', id),
+    openRemote: (folder, uid, email) => ipcRenderer.invoke('drafts:open-remote', folder, uid, email)
+  },
+
+  rules: {
+    list:   ()     => ipcRenderer.invoke('rules:list'),
+    save:   (rule) => ipcRenderer.invoke('rules:save', rule),
+    delete: (id)   => ipcRenderer.invoke('rules:delete', id)
   },
 
   // ── Settings ────────────────────────────────────────────────────────────────
@@ -144,6 +155,8 @@ contextBridge.exposeInMainWorld('api', {
     sync:    (email, password) => ipcRenderer.invoke('contacts:sync', email, password),
     list:    (email)           => ipcRenderer.invoke('contacts:list', email),
     search:  (query, email)    => ipcRenderer.invoke('contacts:search', query, email),
+    save:    (contact, email)  => ipcRenderer.invoke('contacts:save', contact, email),
+    delete:  (contact, email)  => ipcRenderer.invoke('contacts:delete', contact, email),
     clear:   (email)           => ipcRenderer.invoke('contacts:clear', email),
     dumpRaw: (email, password) => ipcRenderer.invoke('contacts:dump-raw', email, password)
   },
@@ -152,6 +165,9 @@ contextBridge.exposeInMainWorld('api', {
   calendar: {
     sync:         (email, password)       => ipcRenderer.invoke('calendar:sync', email, password),
     events:       (email, fromTs, toTs)   => ipcRenderer.invoke('calendar:events', email, fromTs, toTs),
+    save:         (item, email)           => ipcRenderer.invoke('calendar:save', item, email),
+    delete:       (item, email)           => ipcRenderer.invoke('calendar:delete', item, email),
+    respond:      (invite, response, email) => ipcRenderer.invoke('calendar:respond', invite, response, email),
     clear:        (email)                 => ipcRenderer.invoke('calendar:clear', email),
     sources:      (email)                 => ipcRenderer.invoke('calendar:sources', email),
     toggleSource: (href, enabled)         => ipcRenderer.invoke('calendar:toggle-source', href, enabled)
@@ -173,7 +189,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // ── Push events (main → renderer) ───────────────────────────────────────────
   on: (channel, callback) => {
-    const allowed = ['imap:new-mail', 'imap:connection-status', 'imap:sync-complete', 'imap:flags-updated', 'open-compose', 'imap:notification-click', 'store:folders-changed', 'updater:status', 'sync:operation-start', 'sync:operation-end', 'sync:operation-failed', 'sync:operation-update', 'sync:rollback']
+    const allowed = ['imap:new-mail', 'imap:connection-status', 'imap:sync-complete', 'imap:flags-updated', 'open-compose', 'imap:notification-click', 'store:folders-changed', 'updater:status', 'sync:operation-start', 'sync:operation-end', 'sync:operation-failed', 'sync:operation-update', 'sync:rollback', 'smtp:undo-window']
     if (!allowed.includes(channel)) return
     const sub = (_event, ...args) => callback(...args)
     ipcRenderer.on(channel, sub)
