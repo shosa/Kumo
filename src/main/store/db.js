@@ -4,6 +4,10 @@ import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { logErr, logWarn } from '../logger.js'
 import { buildOptimisticMovePlan, normalizeUidMap } from '../optimisticMove.js'
+import {
+  clearReclaimableCache as clearReclaimableCacheTables,
+  rebuildMailCache as rebuildMailCacheTables
+} from '../cacheMaintenance.js'
 
 let db = null
 let SQL = null
@@ -100,6 +104,14 @@ export async function initDB() {
     )
   `)
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS sender_logo_cache (
+      domain      TEXT PRIMARY KEY,
+      result_json TEXT NOT NULL,
+      expires_at  INTEGER NOT NULL
+    )
+  `)
+
   // Default settings
   const defaults = {
     syncMode: 'idle',
@@ -109,7 +121,8 @@ export async function initDB() {
     notifyFolders: ['INBOX'],
     signature: '',
     theme: 'light',
-    language: 'en-US'
+    language: 'en-US',
+    showSenderLogos: false
   }
   for (const [key, value] of Object.entries(defaults)) {
     db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`, [key, JSON.stringify(value)])
@@ -722,6 +735,43 @@ export function saveSetting(key, value) {
   scheduleSave()
 }
 
+export function getSenderLogoCache(domain) {
+  const d = getDB()
+  const stmt = d.prepare(`
+    SELECT result_json, expires_at
+    FROM sender_logo_cache
+    WHERE domain = ?
+  `)
+  stmt.bind([domain])
+  const row = oneRow(stmt)
+  if (!row) return null
+  try {
+    return {
+      result: JSON.parse(row.result_json),
+      expiresAt: Number(row.expires_at)
+    }
+  } catch {
+    d.run(`DELETE FROM sender_logo_cache WHERE domain = ?`, [domain])
+    scheduleSave()
+    return null
+  }
+}
+
+export function setSenderLogoCache(domain, entry) {
+  const d = getDB()
+  d.run(`
+    INSERT OR REPLACE INTO sender_logo_cache (domain, result_json, expires_at)
+    VALUES (?, ?, ?)
+  `, [domain, JSON.stringify(entry.result), entry.expiresAt])
+  scheduleSave()
+}
+
+export function clearSenderLogoCache() {
+  const d = getDB()
+  d.run(`DELETE FROM sender_logo_cache`)
+  scheduleSave()
+}
+
 export function getLocalUids(folder, accountEmail) {
   const d = getDB()
   const stmt = accountEmail
@@ -1110,14 +1160,15 @@ export function removeMessages(uids, folder) {
 
 export function clearMessages() {
   const d = getDB()
-  d.run(`DELETE FROM messages`)
-  scheduleSave()
+  rebuildMailCacheTables(d)
+  persistDBImmediate()
 }
 
 export function clearBodyCache() {
   const d = getDB()
   d.run(`UPDATE messages SET body_html = NULL, body_text = NULL, body_fetched = 0`)
-  scheduleSave()
+  try { d.run(`UPDATE messages_fts SET body_text = ''`) } catch { /* FTS5 best-effort */ }
+  persistDBImmediate()
 }
 
 export function clearFolderCache() {
@@ -1128,6 +1179,29 @@ export function clearFolderCache() {
 
 export function getDbPath() {
   return dbPath
+}
+
+export function clearReclaimableCache() {
+  clearReclaimableCacheTables(getDB())
+  persistDBImmediate()
+}
+
+export function rebuildMailCache() {
+  rebuildMailCacheTables(getDB())
+  persistDBImmediate()
+}
+
+export function getStorageCounts() {
+  const d = getDB()
+  const value = (sql) => Number(d.exec(sql)[0]?.values?.[0]?.[0] || 0)
+  return {
+    messages: value(`SELECT COUNT(*) FROM messages`),
+    cachedBodies: value(`SELECT COUNT(*) FROM messages WHERE body_fetched = 1`),
+    downloadedAttachments: value(`SELECT COUNT(*) FROM attachments WHERE downloaded = 1`),
+    senderLogos: value(`SELECT COUNT(*) FROM sender_logo_cache`),
+    contacts: value(`SELECT COUNT(*) FROM contacts`),
+    calendarEvents: value(`SELECT COUNT(*) FROM calendar_events`)
+  }
 }
 
 export function resetAllData() {
@@ -1144,6 +1218,7 @@ export function resetAllData() {
   d.run(`DELETE FROM calendar_sources`)
   d.run(`DELETE FROM sync_queue`)
   d.run(`DELETE FROM outbox`)
+  d.run(`DELETE FROM sender_logo_cache`)
   try { d.run(`DELETE FROM messages_fts`) } catch { /* FTS5 best-effort */ }
   persistDBImmediate()
 }

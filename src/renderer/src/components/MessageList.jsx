@@ -4,27 +4,7 @@ import { useTranslation } from '../i18n/index'
 import { IconSearch, IconClose, IconAttach, IconEnvelope, IconStar, IconReply, IconTrash, IconMarkRead, IconRefresh, IconArrowDown } from './Icons'
 import ContextMenu from './ContextMenu'
 import { animateMessageRemoval } from '../motion'
-
-const AVATAR_COLORS = [
-  '#0071e3','#5e5ebc','#bf5af2','#ff6b35',
-  '#30d158','#ffd60a','#ff453a','#64d2ff'
-]
-
-function getAvatarColor(name) {
-  if (!name) return AVATAR_COLORS[0]
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
-}
-
-function getInitials(name, email) {
-  if (name) {
-    const parts = name.trim().split(' ')
-    if (parts.length >= 2) return ([...parts[0]][0] + [...parts[parts.length - 1]][0]).toUpperCase()
-    return [...parts[0]].slice(0, 2).join('').toUpperCase()
-  }
-  return [...(email || '?')].slice(0, 2).join('').toUpperCase()
-}
+import SenderAvatar, { getInitials, isOutgoingFolder } from './SenderAvatar'
 
 function formatDate(ts) {
   if (!ts) return ''
@@ -526,7 +506,8 @@ function MessageItem({ message, selected, multiSelected, exiting, isNew, threadC
   const isUnread  = !message.flags?.includes('\\Seen')
   const isStarred = message.flags?.includes('\\Flagged')
   const hasAttachments = message.has_attachments || false
-  const isSentFolder = /sent|draft|outbox/i.test(message.folder || '')
+  const folder = state.folders.list.find(item => item.path === message.folder) || { path: message.folder }
+  const isSentFolder = isOutgoingFolder(folder)
   const resolvedName = (() => {
     if (isSentFolder) {
       const to = message.to_addresses
@@ -538,7 +519,6 @@ function MessageItem({ message, selected, multiSelected, exiting, isNew, threadC
   })()
   const senderEmail = message.from_email || message.from || ''
   const initials  = getInitials(resolvedName, senderEmail)
-  const color     = getAvatarColor(resolvedName)
 
   return (
     <div
@@ -558,12 +538,15 @@ function MessageItem({ message, selected, multiSelected, exiting, isNew, threadC
     >
       <span className="mail__unread" />
 
-      <div
+      <SenderAvatar
         className="mail__avatar"
-        style={{ background: multiSelected ? 'var(--accent)' : color }}
-      >
-        {multiSelected ? '✓' : initials}
-      </div>
+        name={resolvedName}
+        email={senderEmail}
+        folder={folder}
+        enabled={state.settings.showAvatars !== false && state.settings.showSenderLogos === true && !multiSelected}
+        fallback={multiSelected ? '✓' : initials}
+        style={multiSelected ? { background: 'var(--accent)' } : undefined}
+      />
 
       <div className="mail__body">
         <div className="mail__r1">

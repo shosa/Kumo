@@ -45,6 +45,7 @@ const initialState = {
     language: 'en-US',
     accentColor: '#0071e3',
     showAvatars: true,
+    showSenderLogos: false,
     showPreview: true,
     updatesEnabled: true
   },

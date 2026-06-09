@@ -5,21 +5,11 @@ import {
 } from './Icons'
 import { locales } from '../i18n/index'
 import { useAppearance } from '../appearance'
+import SenderAvatar from './SenderAvatar'
 
-const AVATAR_COLORS = ['#0071e3','#5e5ebc','#bf5af2','#ff6b35','#30d158','#ffd60a','#ff453a','#64d2ff']
-
-function getAvatarColor(name) {
-  if (!name) return AVATAR_COLORS[0]
-  let h = 0
-  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h)
-  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length]
-}
-
-function AddressChip({ address, large, noCompose }) {
+function AddressChip({ address, large, noCompose, senderLogoEnabled = false, folder = null }) {
   const a = typeof address === 'string' ? { email: address, name: '' } : (address || {})
   const email = a.email || ''
-  const color = getAvatarColor(a.name || email)
-  const ini = getInitials(a.name, email)
   return (
     <div
       className={`address-chip${large ? ' address-chip--large' : ''}${noCompose ? ' address-chip--self' : ''}`}
@@ -30,7 +20,13 @@ function AddressChip({ address, large, noCompose }) {
       onKeyDown={noCompose ? undefined : e => e.key === 'Enter' && window.api.window.openCompose({ mode: 'new', to: email })}
       style={noCompose ? { cursor: 'default', pointerEvents: 'none' } : undefined}
     >
-      <div className="address-chip__avatar" style={{ background: color }}>{ini}</div>
+      <SenderAvatar
+        className="address-chip__avatar"
+        name={a.name}
+        email={email}
+        folder={folder}
+        enabled={senderLogoEnabled}
+      />
       <span className="address-chip__name">{a.name || email}</span>
       <div className="address-chip__popover">
         {a.name && <div className="address-chip__popover-name">{a.name}</div>}
@@ -38,15 +34,6 @@ function AddressChip({ address, large, noCompose }) {
       </div>
     </div>
   )
-}
-
-function getInitials(name, email) {
-  if (name) {
-    const p = name.trim().split(' ')
-    if (p.length >= 2) return ([...p[0]][0] + [...p[p.length - 1]][0]).toUpperCase()
-    return [...p[0]].slice(0, 2).join('').toUpperCase()
-  }
-  return [...(email || '?')].slice(0, 2).join('').toUpperCase()
 }
 
 function formatFullDate(ts) {
@@ -446,6 +433,8 @@ export default function MessageViewerApp({ message }) {
               <span className="viewer__recipients-label">{t('reading.from')}</span>
               <div className="viewer__chips">
                 <AddressChip address={{ name: message.from_name, email: message.from_email }} large
+                  senderLogoEnabled={settings.showSenderLogos === true}
+                  folder={{ path: message.folder, special_use: message.folder_special_use }}
                   noCompose={message.from_email?.toLowerCase() === message.account_email?.toLowerCase()} />
               </div>
             </div>

@@ -4,6 +4,7 @@ import {
   initDB, closeDB, searchMessages, getSettings, saveSetting,
   getFolders, getMessages, getMessageCount,
   clearBodyCache, clearFolderCache, clearMessages, getDbPath, resetAllData,
+  clearReclaimableCache, rebuildMailCache, getStorageCounts,
   getDrafts, upsertDraft, deleteDraft,
   getSyncState,
   getAttachmentsMeta, markAttachmentDownloaded,
@@ -11,7 +12,8 @@ import {
   upsertEvent, getEvents, deleteEvents,
   upsertCalendarSource, getCalendarSources, setCalendarSourceEnabled,
   getAttachmentSnapshots, getMessageSnapshots, moveMessagesOptimistic, removeMessages,
-  persistDBImmediate, recalcFolderUnread, getSyncQueueCount
+  persistDBImmediate, recalcFolderUnread, getSyncQueueCount,
+  getSenderLogoCache, setSenderLogoCache
 } from './store/db.js'
 import { saveCredentials, getCredentials, deleteCredentials, listStoredEmails } from './auth/index.js'
 import { ImapClient } from './imap/client.js'
@@ -20,7 +22,7 @@ import { applyFlagChange, parseStoredFlags } from './messageFlags.js'
 import { sendEmail } from './smtp/index.js'
 import { syncContacts, dumpRawContacts } from './carddav/client.js'
 import { syncCalendar } from './caldav/client.js'
-import { initLogger, logContact, logDebug, logErr, logSync } from './logger.js'
+import { initLogger, logContact, logDebug, logErr, logInfo, logSync } from './logger.js'
 import { initUpdater } from './updater.js'
 import { replayPendingSyncOperations } from './startupSync.js'
 import {
@@ -32,6 +34,10 @@ import {
 import { startSyncRunner, stopSyncRunner, flushSyncQueue } from './syncRunner.js'
 import { APP_NAME, WINDOWS_APP_ID } from './appIdentity.js'
 import { createNotificationAvatarBitmap } from './notificationAvatar.js'
+import { isLogoExcludedFolder } from './senderLogo.js'
+import { createSenderLogoResolver } from './senderLogoResolver.js'
+import { isLocalAppUrl, shouldBlockFrameNavigation } from './frameNavigation.js'
+import { clearDirectoryContents, getDirectorySize, getFileSize } from './storageFiles.js'
 
 // In dev mode, isolate data from the production install
 if (process.env.ELECTRON_RENDERER_URL) {
@@ -51,6 +57,7 @@ const imapCoordinator = new ImapOperationCoordinator()
 const imapClients = new Map()   // email → ImapClient
 const unreadCounts = new Map()  // email → number
 const viewerDataStore = new Map()
+let senderLogoResolver = null
 
 function getSubWindowTheme() {
   let theme = 'light'
@@ -75,12 +82,8 @@ function getResourcePath(filename) {
 }
 
 function _attachExternalLinkHandler(win) {
-  const isLocal = (url) => {
-    if (url.startsWith('file://')) return true
-    if (url.startsWith('kumo-local://')) return true
-    if (process.env.ELECTRON_RENDERER_URL && url.startsWith(process.env.ELECTRON_RENDERER_URL)) return true
-    return false
-  }
+  const navigationOptions = { rendererUrl: process.env.ELECTRON_RENDERER_URL }
+  const isLocal = (url) => isLocalAppUrl(url, navigationOptions)
 
   const openUrl = (url) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
@@ -110,9 +113,9 @@ function _attachExternalLinkHandler(win) {
   // Intercept iframe navigation (e.g. link clicked inside email body iframe)
   win.webContents.on('will-frame-navigate', (event) => {
     if (!event.isMainFrame) {
-      if (event.url.startsWith('kumo-local://') || !isLocal(event.url)) {
+      if (shouldBlockFrameNavigation(event.url, navigationOptions)) {
         event.preventDefault()
-        if (!event.url.startsWith('kumo-local://')) openUrl(event.url)
+        openUrl(event.url)
       }
     }
   })
@@ -814,6 +817,92 @@ ipcMain.handle('store:get-sync-state', async (_e, folder) => {
   }
 })
 
+async function getLocalStorageUsage() {
+  const userData = app.getPath('userData')
+  const [database, attachments, logs] = await Promise.all([
+    getFileSize(getDbPath()),
+    getDirectorySize(join(userData, 'attachments')),
+    getDirectorySize(join(userData, 'logs'))
+  ])
+  return {
+    total: database + attachments + logs,
+    database,
+    attachments,
+    logs,
+    counts: getStorageCounts()
+  }
+}
+
+ipcMain.handle('store:get-storage-usage', async () => {
+  try {
+    return { ok: true, usage: await getLocalStorageUsage() }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('store:free-space', async () => {
+  try {
+    const before = await getLocalStorageUsage()
+    await clearDirectoryContents(join(app.getPath('userData'), 'attachments'))
+    clearReclaimableCache()
+    const after = await getLocalStorageUsage()
+    logInfo('Local cache cleared', {
+      freedBytes: Math.max(0, before.total - after.total),
+      cachedBodies: before.counts.cachedBodies,
+      attachments: before.counts.downloadedAttachments,
+      senderLogos: before.counts.senderLogos
+    })
+    return {
+      ok: true,
+      freedBytes: Math.max(0, before.total - after.total),
+      usage: after
+    }
+  } catch (err) {
+    logErr('Local cache cleanup failed', { error: err.message })
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('store:rebuild-mail-cache', async () => {
+  try {
+    if (getSyncQueueCount() > 0) {
+      return { ok: false, code: 'pending-sync-operations', error: 'Pending sync operations' }
+    }
+    const before = await getLocalStorageUsage()
+    await clearDirectoryContents(join(app.getPath('userData'), 'attachments'))
+    rebuildMailCache()
+    mainWindow?.webContents.send('store:folders-changed', [])
+    const after = await getLocalStorageUsage()
+    logInfo('Mail cache rebuilt', {
+      freedBytes: Math.max(0, before.total - after.total),
+      messages: before.counts.messages
+    })
+    return {
+      ok: true,
+      freedBytes: Math.max(0, before.total - after.total),
+      usage: after
+    }
+  } catch (err) {
+    logErr('Mail cache rebuild failed', { error: err.message })
+    return {
+      ok: false,
+      code: err.message === 'pending-sync-operations' ? err.message : undefined,
+      error: err.message
+    }
+  }
+})
+
+ipcMain.handle('store:clear-logs', async () => {
+  try {
+    const bytesFreed = await clearDirectoryContents(join(app.getPath('userData'), 'logs'))
+    initLogger(join(app.getPath('userData'), 'logs', 'kumo.log'))
+    return { ok: true, bytesFreed, usage: await getLocalStorageUsage() }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
 ipcMain.handle('store:clear-body-cache', async () => {
   try {
     clearBodyCache()
@@ -867,6 +956,7 @@ ipcMain.handle('store:reset-all-data', async () => {
     unreadCounts.clear()
     await deleteCredentials().catch(() => {})
     resetAllData()
+    await clearDirectoryContents(join(app.getPath('userData'), 'attachments'))
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -925,6 +1015,29 @@ ipcMain.handle('settings:save', async (_e, updates) => {
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('sender-logo:get', async (_e, sender, folder = null) => {
+  try {
+    if (getSettings().showSenderLogos !== true) {
+      return { ok: true, dataUrl: null, source: null, disabled: true }
+    }
+    if (isLogoExcludedFolder(folder)) {
+      return { ok: true, dataUrl: null, source: null, excluded: true }
+    }
+    if (!senderLogoResolver) return { ok: true, dataUrl: null, source: null }
+
+    const result = await senderLogoResolver.get(sender)
+    return {
+      ok: true,
+      dataUrl: result.dataUrl,
+      source: result.source,
+      cached: result.cached === true
+    }
+  } catch (err) {
+    logDebug('Sender logo lookup failed', { error: err.message })
+    return { ok: true, dataUrl: null, source: null }
   }
 })
 
@@ -1112,7 +1225,11 @@ ipcMain.handle('window:set-badge', (_e, count) => {
 ipcMain.handle('window:open-message', async (_e, msg) => {
   try {
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2)
-    viewerDataStore.set(id, msg)
+    const folder = getFolders().find(item => item.path === msg.folder)
+    viewerDataStore.set(id, {
+      ...msg,
+      folder_special_use: folder?.special_use || msg.folder_special_use || null
+    })
 
     const { backgroundColor: vBg, titleBarOverlay: vOverlay } = getSubWindowTheme()
     const viewerWindow = new BrowserWindow({
@@ -1353,6 +1470,13 @@ app.whenReady().then(async () => {
 
   initLogger(join(app.getPath('userData'), 'logs', 'kumo.log'))
   await initDB()
+  senderLogoResolver = createSenderLogoResolver({
+    cache: {
+      get: getSenderLogoCache,
+      set: setSenderLogoCache
+    },
+    log: (event, context) => logDebug(`Sender logo ${event}`, context)
+  })
   createWindow()
   createTray()
   initUpdater(mainWindow)

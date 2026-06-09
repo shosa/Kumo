@@ -7,29 +7,7 @@ import {
   IconTrash, IconNoSymbol, IconEnvelope, IconArchive,
   IconFileImage, IconFileDoc, IconDownload, IconClose
 } from './Icons'
-
-const AVATAR_COLORS = [
-  '#0071e3','#5e5ebc','#bf5af2','#ff6b35',
-  '#30d158','#ffd60a','#ff453a','#64d2ff'
-]
-
-function getAvatarColor(name) {
-  if (!name) return AVATAR_COLORS[0]
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
-}
-
-function getInitials(name, email) {
-  if (name) {
-    const parts = name.trim().split(' ')
-    if (parts.length >= 2) {
-      return ([...parts[0]][0] + [...parts[parts.length - 1]][0]).toUpperCase()
-    }
-    return [...parts[0]].slice(0, 2).join('').toUpperCase()
-  }
-  return [...(email || '?')].slice(0, 2).join('').toUpperCase()
-}
+import SenderAvatar from './SenderAvatar'
 
 const ADDR_COLORS = [
   '#0071e3','#5e5ebc','#bf5af2','#ff6b35',
@@ -473,6 +451,7 @@ export default function ReadingPane() {
   // Sender info
   const senderName = msg.from_name || ''
   const senderEmail = msg.from_email || ''
+  const senderFolder = state.folders.list.find(folder => folder.path === msg.folder) || { path: msg.folder }
 
   // Recipient names from to_addresses
   const recipientNames = (msg.to_addresses || [])
@@ -554,9 +533,13 @@ export default function ReadingPane() {
       <div className="reader__head fadein">
         <div className="reader__subject">{msg.subject || t('reading.noSubject')}</div>
         <div className="reader__metarow">
-          <div className="reader__sender-av" style={{ background: getAvatarColor(senderName) }}>
-            {getInitials(senderName, senderEmail)}
-          </div>
+          <SenderAvatar
+            className="reader__sender-av"
+            name={senderName}
+            email={senderEmail}
+            folder={senderFolder}
+            enabled={state.settings.showSenderLogos === true}
+          />
           <div className="reader__sender">
             <div className="reader__sender-name">
               {senderName}{' '}

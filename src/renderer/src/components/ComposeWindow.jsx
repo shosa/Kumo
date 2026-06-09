@@ -238,7 +238,7 @@ export default function ComposeWindow() {
   const [cc, setCc] = useState([])
   const [bcc, setBcc] = useState([])
   const [subject, setSubject] = useState('')
-  const [showCcBcc, setShowCcBcc] = useState(mode === 'replyAll')
+  const [showCcBcc, setShowCcBcc] = useState(false)
   const [sending, setSending] = useState(false)
   const [contextMenu, setContextMenu] = useState(null)
 
@@ -305,7 +305,6 @@ export default function ComposeWindow() {
       const replyToString = buildReplyTo(mode, msg, state.auth.email)
       setTo(parseAddressString(replyToString))
       setSubject(buildReplySubject(mode, msg.subject))
-      if (mode === 'replyAll') setShowCcBcc(true)
     }
   }, [mode, msg])
 
@@ -572,17 +571,19 @@ export default function ComposeWindow() {
         {/* Editor */}
         <div className="compose-window__editor">
           <div className="compose-editor" onContextMenu={handleContextMenu}>
-            <RichTextEditor
-              ref={editorRef}
-              value={editorContent}
-              onChange={(html) => {
-                setEditorContent(html)
-                setBodyVersion(v => v + 1)
-              }}
-              placeholder={t('compose.placeholder')}
-              modules={quillModules}
-            />
-            <QuotedMessagePreview html={quotedHtml} title={t('compose.quote.original')} />
+            <div className="compose-editor__content">
+              <RichTextEditor
+                ref={editorRef}
+                value={editorContent}
+                onChange={(html) => {
+                  setEditorContent(html)
+                  setBodyVersion(v => v + 1)
+                }}
+                placeholder={t('compose.placeholder')}
+                modules={quillModules}
+              />
+              <QuotedMessagePreview html={quotedHtml} title={t('compose.quote.original')} />
+            </div>
           </div>
         </div>
 

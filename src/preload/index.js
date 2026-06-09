@@ -92,6 +92,14 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('store:get-sync-state', folder),
     getPendingOpsCount: () =>
       ipcRenderer.invoke('store:get-pending-ops-count'),
+    getStorageUsage: () =>
+      ipcRenderer.invoke('store:get-storage-usage'),
+    freeSpace: () =>
+      ipcRenderer.invoke('store:free-space'),
+    rebuildMailCache: () =>
+      ipcRenderer.invoke('store:rebuild-mail-cache'),
+    clearLogs: () =>
+      ipcRenderer.invoke('store:clear-logs'),
     readLocalFile: (filePath) =>
       ipcRenderer.invoke('store:read-local-file', filePath)
   },
@@ -107,6 +115,10 @@ contextBridge.exposeInMainWorld('api', {
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     save: (updates) => ipcRenderer.invoke('settings:save', updates)
+  },
+
+  senderLogo: {
+    get: (sender, folder) => ipcRenderer.invoke('sender-logo:get', sender, folder)
   },
 
   // ── Window controls ─────────────────────────────────────────────────────────

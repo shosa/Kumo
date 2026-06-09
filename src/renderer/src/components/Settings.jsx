@@ -14,12 +14,6 @@ export default function Settings() {
   const [appVersion,       setAppVersion]       = useState('')
   const [updateStatus,     setUpdateStatus]     = useState(null) // null | 'checking' | 'available' | 'not-available' | 'error'
   const [updateVersion,    setUpdateVersion]    = useState('')
-  const [clearingMsgs,     setClearingMsgs]     = useState(false)
-  const [msgsCleared,      setMsgsCleared]      = useState(false)
-  const [clearingCache,    setClearingCache]    = useState(false)
-  const [cacheCleared,     setCacheCleared]     = useState(false)
-  const [clearingFolders,  setClearingFolders]  = useState(false)
-  const [foldersCleared,   setFoldersCleared]   = useState(false)
   const [clearingContacts, setClearingContacts] = useState(false)
   const [contactsCleared,  setContactsCleared]  = useState(false)
   const [clearingCalendar, setClearingCalendar] = useState(false)
@@ -27,11 +21,34 @@ export default function Settings() {
   const [dbPath,           setDbPath]           = useState('')
   const [confirmReset,     setConfirmReset]     = useState(false)
   const [resetting,        setResetting]        = useState(false)
+  const [storageUsage,     setStorageUsage]     = useState(null)
+  const [storageLoading,   setStorageLoading]   = useState(true)
+  const [freeingSpace,     setFreeingSpace]     = useState(false)
+  const [freedBytes,       setFreedBytes]       = useState(null)
+  const [advancedOpen,     setAdvancedOpen]     = useState(false)
+  const [confirmRebuild,   setConfirmRebuild]   = useState(false)
+  const [rebuilding,       setRebuilding]       = useState(false)
+  const [clearingLogs,     setClearingLogs]     = useState(false)
+  const [logsCleared,      setLogsCleared]      = useState(false)
+  const [storageError,     setStorageError]     = useState('')
 
   useEffect(() => {
     window.api.store.getDbPath?.().then(r => { if (r?.ok) setDbPath(r.path || '') })
     window.api.updater.version?.().then(v => { if (v) setAppVersion(v) })
+    refreshStorageUsage()
   }, [])
+
+  async function refreshStorageUsage() {
+    setStorageLoading(true)
+    const result = await window.api.store.getStorageUsage?.().catch(err => ({ ok: false, error: err.message }))
+    if (result?.ok) {
+      setStorageUsage(result.usage)
+      setStorageError('')
+    } else {
+      setStorageError(result?.error || t('settings.storageError'))
+    }
+    setStorageLoading(false)
+  }
 
   async function handleCheckUpdate() {
     console.log('[Updater] Starting check...')
@@ -71,49 +88,100 @@ export default function Settings() {
     dispatch({ type: 'SET_UNAUTHENTICATED' })
   }
 
-  async function handleClearMessages() {
-    setClearingMsgs(true)
-    await window.api.store.clearMessages()
-    dispatch({ type: 'SET_MESSAGES', payload: { messages: [], total: 0, page: 1, hasMore: false } })
-    setClearingMsgs(false); setMsgsCleared(true)
-    setTimeout(() => setMsgsCleared(false), 2500)
+  async function handleFreeSpace() {
+    setFreeingSpace(true)
+    setFreedBytes(null)
+    setStorageError('')
+    const result = await window.api.store.freeSpace().catch(err => ({ ok: false, error: err.message }))
+    if (result?.ok) {
+      setStorageUsage(result.usage)
+      setFreedBytes(result.freedBytes || 0)
+      dispatch({ type: 'SELECT_MESSAGE', payload: null })
+    } else {
+      setStorageError(result?.error || t('settings.storageError'))
+    }
+    setFreeingSpace(false)
   }
 
-  async function handleClearCache() {
-    setClearingCache(true)
-    await window.api.store.clearBodyCache()
-    setClearingCache(false); setCacheCleared(true)
-    setTimeout(() => setCacheCleared(false), 2500)
+  async function handleRebuildMailCache() {
+    if (!confirmRebuild) {
+      setConfirmRebuild(true)
+      return
+    }
+    setRebuilding(true)
+    setStorageError('')
+    const result = await window.api.store.rebuildMailCache().catch(err => ({ ok: false, error: err.message }))
+    if (result?.ok) {
+      setStorageUsage(result.usage)
+      setFreedBytes(result.freedBytes || 0)
+      setConfirmRebuild(false)
+      dispatch({ type: 'SET_FOLDERS', payload: [] })
+      dispatch({ type: 'SET_MESSAGES', payload: { messages: [], total: 0, page: 1, hasMore: false } })
+      window.api.imap.syncFolders?.()
+    } else {
+      setStorageError(
+        result?.code === 'pending-sync-operations'
+          ? t('settings.rebuildMailPending')
+          : (result?.error || t('settings.storageError'))
+      )
+    }
+    setRebuilding(false)
   }
 
-  async function handleClearFolderCache() {
-    setClearingFolders(true)
-    await window.api.store.clearFolderCache()
-    setClearingFolders(false); setFoldersCleared(true)
-    setTimeout(() => setFoldersCleared(false), 2500)
+  async function handleClearLogs() {
+    setClearingLogs(true)
+    setStorageError('')
+    const result = await window.api.store.clearLogs().catch(err => ({ ok: false, error: err.message }))
+    if (result?.ok) {
+      setStorageUsage(result.usage)
+      setLogsCleared(true)
+      setTimeout(() => setLogsCleared(false), 2500)
+    } else {
+      setStorageError(result?.error || t('settings.storageError'))
+    }
+    setClearingLogs(false)
   }
 
   async function handleClearContacts() {
     setClearingContacts(true)
-    await window.api.contacts.clear(email)
-    dispatch({ type: 'SET_CONTACTS', payload: [] })
-    setClearingContacts(false); setContactsCleared(true)
-    setTimeout(() => setContactsCleared(false), 2500)
+    setStorageError('')
+    const result = await window.api.contacts.clear(email).catch(err => ({ ok: false, error: err.message }))
+    if (result?.ok) {
+      dispatch({ type: 'SET_CONTACTS', payload: [] })
+      setContactsCleared(true)
+      setTimeout(() => setContactsCleared(false), 2500)
+      refreshStorageUsage()
+    } else {
+      setStorageError(result?.error || t('settings.storageError'))
+    }
+    setClearingContacts(false)
   }
 
   async function handleClearCalendar() {
     setClearingCalendar(true)
-    await window.api.calendar.clear(email)
-    dispatch({ type: 'SET_CALENDAR_EVENTS', payload: [] })
-    setClearingCalendar(false); setCalendarCleared(true)
-    setTimeout(() => setCalendarCleared(false), 2500)
+    setStorageError('')
+    const result = await window.api.calendar.clear(email).catch(err => ({ ok: false, error: err.message }))
+    if (result?.ok) {
+      dispatch({ type: 'SET_CALENDAR_EVENTS', payload: [] })
+      setCalendarCleared(true)
+      setTimeout(() => setCalendarCleared(false), 2500)
+      refreshStorageUsage()
+    } else {
+      setStorageError(result?.error || t('settings.storageError'))
+    }
+    setClearingCalendar(false)
   }
 
   async function handleResetAllData() {
     if (!confirmReset) { setConfirmReset(true); return }
     setResetting(true)
-    await window.api.store.resetAllData()
-    dispatch({ type: 'SET_UNAUTHENTICATED' })
+    setStorageError('')
+    const result = await window.api.store.resetAllData().catch(err => ({ ok: false, error: err.message }))
+    if (result?.ok) dispatch({ type: 'SET_UNAUTHENTICATED' })
+    else {
+      setStorageError(result?.error || t('settings.storageError'))
+      setResetting(false)
+    }
   }
 
   const Switch = ({ on, onChange }) => (
@@ -145,6 +213,23 @@ export default function Settings() {
   )
 
   const ACCENTS = ['#0071e3', '#5e5ebc', '#1f9d57', '#e0820b', '#e5484d']
+  const formatBytes = (bytes = 0) => {
+    if (bytes < 1024) return `${bytes} B`
+    const units = ['KB', 'MB', 'GB']
+    let value = bytes / 1024
+    let unit = units[0]
+    for (let index = 1; index < units.length && value >= 1024; index++) {
+      value /= 1024
+      unit = units[index]
+    }
+    return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)} ${unit}`
+  }
+  const storageTotal = storageUsage?.total || 0
+  const storageSegments = [
+    { key: 'database', value: storageUsage?.database || 0, color: 'var(--accent)' },
+    { key: 'attachments', value: storageUsage?.attachments || 0, color: '#7b61d1' },
+    { key: 'logs', value: storageUsage?.logs || 0, color: '#d88a24' }
+  ]
 
   return (
     <div className="full">
@@ -228,6 +313,13 @@ export default function Settings() {
             <div className="sset__card">
               <div className="srow">
                 <div className="srow__txt">
+                  <div className="srow__name">{t('settings.showSenderLogos')}</div>
+                  <div className="srow__desc">{t('settings.showSenderLogosDesc')}</div>
+                </div>
+                <Switch on={s.showSenderLogos === true} onChange={() => update('showSenderLogos', s.showSenderLogos !== true)} />
+              </div>
+              <div className="srow">
+                <div className="srow__txt">
                   <div className="srow__name">{t('settings.blockImages')}</div>
                   <div className="srow__desc">{t('settings.blockImagesDesc')}</div>
                 </div>
@@ -245,72 +337,141 @@ export default function Settings() {
 
           {/* Dati e cache */}
           <div className="sset">
-            <div className="sset__label">{t('settings.dataAndCache')}</div>
-            <div className="sset__card">
-              {dbPath && (
-                <div className="srow">
-                  <div className="srow__txt">
-                    <div className="srow__name">{t('settings.dbLocation')}</div>
-                    <div className="srow__desc" style={{ wordBreak: 'break-all', userSelect: 'text' }}>{dbPath}</div>
+            <div className="sset__label">{t('settings.localStorage')}</div>
+            <div className="storage-card">
+              <div className="storage-card__summary">
+                <div>
+                  <div className="storage-card__total">
+                    {storageLoading ? '...' : formatBytes(storageTotal)}
                   </div>
-                  <button className="icon-btn" type="button" onClick={() => window.api.store.openDbFolder?.()} title={t('settings.openFolder')} style={{ flexShrink: 0 }}>
-                    <IconFolderOpen size={15} />
-                  </button>
-                </div>
-              )}
-              <div className="srow">
-                <div className="srow__txt">
-                  <div className="srow__name">{t('settings.clearMessages')}</div>
-                  <div className="srow__desc">{t('settings.clearMessagesDesc')}</div>
-                </div>
-                <ClearBtn loading={clearingMsgs} done={msgsCleared} onClick={handleClearMessages} />
-              </div>
-              <div className="srow">
-                <div className="srow__txt">
-                  <div className="srow__name">{t('settings.clearBodyCache')}</div>
-                  <div className="srow__desc">{t('settings.clearBodyCacheDesc')}</div>
-                </div>
-                <ClearBtn loading={clearingCache} done={cacheCleared} onClick={handleClearCache} />
-              </div>
-              <div className="srow">
-                <div className="srow__txt">
-                  <div className="srow__name">{t('settings.clearFolderCache')}</div>
-                  <div className="srow__desc">{t('settings.clearFolderCacheDesc')}</div>
-                </div>
-                <ClearBtn loading={clearingFolders} done={foldersCleared} onClick={handleClearFolderCache} />
-              </div>
-              <div className="srow">
-                <div className="srow__txt">
-                  <div className="srow__name">{t('settings.clearContacts')}</div>
-                  <div className="srow__desc">{t('settings.clearContactsDesc')}</div>
-                </div>
-                <ClearBtn loading={clearingContacts} done={contactsCleared} onClick={handleClearContacts} />
-              </div>
-              <div className="srow">
-                <div className="srow__txt">
-                  <div className="srow__name">{t('settings.clearCalendar')}</div>
-                  <div className="srow__desc">{t('settings.clearCalendarDesc')}</div>
-                </div>
-                <ClearBtn loading={clearingCalendar} done={calendarCleared} onClick={handleClearCalendar} />
-              </div>
-              <div className="srow">
-                <div className="srow__txt">
-                  <div className="srow__name" style={{ color: 'var(--color-error)' }}>{t('settings.resetData')}</div>
-                  <div className="srow__desc">{confirmReset ? t('settings.confirmReset') : t('settings.resetDataDesc')}</div>
+                  <div className="storage-card__caption">{t('settings.storageUsed')}</div>
                 </div>
                 <button
-                  className="icon-btn"
+                  className="act act--primary"
                   type="button"
-                  onClick={handleResetAllData}
-                  disabled={resetting}
-                  onBlur={() => setConfirmReset(false)}
-                  style={{ flexShrink: 0, color: confirmReset ? 'var(--color-error)' : undefined }}
+                  onClick={handleFreeSpace}
+                  disabled={freeingSpace || storageLoading}
                 >
-                  {resetting
-                    ? <span className="spinner" style={{ width: 14, height: 14 }} />
-                    : <IconTrash size={15} />}
+                  {freeingSpace
+                    ? <><span className="spinner" style={{ width: 12, height: 12 }} /> {t('settings.cleaningStorage')}</>
+                    : t('settings.freeSpace')}
                 </button>
               </div>
+
+              <div className="storage-meter" aria-label={t('settings.storageBreakdown')}>
+                {storageSegments.map(segment => (
+                  <span
+                    key={segment.key}
+                    style={{
+                      width: storageTotal > 0 ? `${Math.max(2, (segment.value / storageTotal) * 100)}%` : 0,
+                      background: segment.color
+                    }}
+                  />
+                ))}
+              </div>
+
+              <div className="storage-grid">
+                {storageSegments.map(segment => (
+                  <div className="storage-stat" key={segment.key}>
+                    <span className="storage-stat__dot" style={{ background: segment.color }} />
+                    <span>{t(`settings.storage.${segment.key}`)}</span>
+                    <b>{formatBytes(segment.value)}</b>
+                  </div>
+                ))}
+              </div>
+
+              <div className="storage-card__detail">
+                {t('settings.freeSpaceDesc')}
+              </div>
+              {freedBytes !== null && (
+                <div className="storage-feedback storage-feedback--success">
+                  <IconCheck size={14} /> {t('settings.storageFreed', formatBytes(freedBytes))}
+                </div>
+              )}
+              {storageError && (
+                <div className="storage-feedback storage-feedback--error">{storageError}</div>
+              )}
+            </div>
+
+            <div className="sset__card storage-actions">
+              <button className="srow srow--button" type="button" onClick={() => setAdvancedOpen(value => !value)}>
+                <div className="srow__txt">
+                  <div className="srow__name">{t('settings.manageStorage')}</div>
+                  <div className="srow__desc">{t('settings.manageStorageDesc')}</div>
+                </div>
+                <span className={`storage-chevron${advancedOpen ? ' open' : ''}`}>›</span>
+              </button>
+
+              {advancedOpen && (
+                <div className="storage-advanced">
+                  <div className="srow">
+                    <div className="srow__txt">
+                      <div className="srow__name">{t('settings.rebuildMailCache')}</div>
+                      <div className="srow__desc">
+                        {confirmRebuild ? t('settings.confirmRebuildMail') : t('settings.rebuildMailCacheDesc')}
+                      </div>
+                    </div>
+                    <button
+                      className={`act${confirmRebuild ? ' act--danger' : ''}`}
+                      type="button"
+                      onClick={handleRebuildMailCache}
+                      disabled={rebuilding}
+                      onBlur={() => setConfirmRebuild(false)}
+                    >
+                      {rebuilding ? <span className="spinner" style={{ width: 12, height: 12 }} /> : t('settings.rebuild')}
+                    </button>
+                  </div>
+                  <div className="srow">
+                    <div className="srow__txt">
+                      <div className="srow__name">{t('settings.clearContacts')}</div>
+                      <div className="srow__desc">{t('settings.clearContactsDesc')}</div>
+                    </div>
+                    <ClearBtn loading={clearingContacts} done={contactsCleared} onClick={handleClearContacts} />
+                  </div>
+                  <div className="srow">
+                    <div className="srow__txt">
+                      <div className="srow__name">{t('settings.clearCalendar')}</div>
+                      <div className="srow__desc">{t('settings.clearCalendarDesc')}</div>
+                    </div>
+                    <ClearBtn loading={clearingCalendar} done={calendarCleared} onClick={handleClearCalendar} />
+                  </div>
+                  <div className="srow">
+                    <div className="srow__txt">
+                      <div className="srow__name">{t('settings.clearLogs')}</div>
+                      <div className="srow__desc">{t('settings.clearLogsDesc')}</div>
+                    </div>
+                    <ClearBtn loading={clearingLogs} done={logsCleared} onClick={handleClearLogs} />
+                  </div>
+                </div>
+              )}
+
+              {dbPath && (
+                <button className="srow srow--button" type="button" onClick={() => window.api.store.openDbFolder?.()}>
+                  <div className="srow__txt">
+                    <div className="srow__name">{t('settings.openDataFolder')}</div>
+                    <div className="srow__desc">{dbPath}</div>
+                  </div>
+                  <IconFolderOpen size={15} />
+                </button>
+              )}
+            </div>
+
+            <div className="storage-danger">
+              <div className="srow__txt">
+                <div className="srow__name">{t('settings.resetData')}</div>
+                <div className="srow__desc">{confirmReset ? t('settings.confirmReset') : t('settings.resetDataDesc')}</div>
+              </div>
+              <button
+                className={`act${confirmReset ? ' act--danger' : ''}`}
+                type="button"
+                onClick={handleResetAllData}
+                disabled={resetting}
+                onBlur={() => setConfirmReset(false)}
+              >
+                {resetting
+                  ? <span className="spinner" style={{ width: 12, height: 12 }} />
+                  : <><IconTrash size={14} /> {t('settings.reset')}</>}
+              </button>
             </div>
           </div>
 

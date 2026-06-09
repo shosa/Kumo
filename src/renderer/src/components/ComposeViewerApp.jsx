@@ -163,7 +163,7 @@ export default function ComposeViewerApp({ composeData }) {
   const [cc, setCc] = useState([])
   const [bcc, setBcc] = useState([])
   const [subject, setSubject] = useState(msg && mode !== 'new' ? buildReplySubject(mode, msg.subject) : '')
-  const [showCcBcc, setShowCcBcc] = useState(mode === 'replyAll')
+  const [showCcBcc, setShowCcBcc] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState(null)
   const [sent, setSent] = useState(false)
@@ -460,17 +460,19 @@ export default function ComposeViewerApp({ composeData }) {
 
         <div className="compose-window__editor">
           <div className="compose-editor" onContextMenu={handleContextMenu}>
-            <RichTextEditor
-              ref={editorRef}
-              value={editorContent}
-              onChange={(html) => {
-                setEditorContent(html)
-                setBodyVersion(v => v + 1)
-              }}
-              modules={quillModules}
-              placeholder={placeholderText}
-            />
-            <QuotedMessagePreview html={quotedHtml} title={t('compose.quote.original')} />
+            <div className="compose-editor__content">
+              <RichTextEditor
+                ref={editorRef}
+                value={editorContent}
+                onChange={(html) => {
+                  setEditorContent(html)
+                  setBodyVersion(v => v + 1)
+                }}
+                modules={quillModules}
+                placeholder={placeholderText}
+              />
+              <QuotedMessagePreview html={quotedHtml} title={t('compose.quote.original')} />
+            </div>
           </div>
         </div>
 
