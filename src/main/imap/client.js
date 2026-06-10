@@ -260,7 +260,7 @@ export class ImapClient extends EventEmitter {
 
   async _fetchNewMessages(folder, prevCount, newCount) {
     if (!this.client) return
-    logMail(`IDLE: ${newCount - prevCount} nuovi messaggi in "${folder}"`)
+    logMail(`IDLE detected new messages`, { folder, count: newCount - prevCount })
     const lock = await this.client.getMailboxLock(folder)
     try {
       const syncState = getSyncState(this.email, folder)
@@ -289,7 +289,7 @@ export class ImapClient extends EventEmitter {
           })
         }
       }
-      if (fetched) logMail(`IDLE: scaricate ${fetched} email da "${folder}"`)
+      if (fetched) logMail('IDLE fetched new messages', { folder, count: fetched })
       if (maxUid > lastUid) upsertSyncState(this.email, folder, maxUid, newCount)
     } finally {
       lock.release()
@@ -692,7 +692,7 @@ export class ImapClient extends EventEmitter {
 
   async moveMessage(folder, uid, destination) {
     if (!this.client) throw new Error('Not connected')
-    logMove(`Sposto uid=${uid} da "${folder}" → "${destination}"`)
+    logMove('Moving message', { uid, folder, destination })
     const lock = await this.client.getMailboxLock(folder)
     try {
       return await this.client.messageMove([uid], destination, { uid: true })
@@ -708,7 +708,7 @@ export class ImapClient extends EventEmitter {
     const trashFolder = folders.find(f => f.special_use === '\\Trash')?.path || 'Deleted Messages'
 
     if (permanent || folder === trashFolder) {
-      logDelete(`Elimino definitivamente uid=${uid} da "${folder}"`)
+      logDelete('Permanently deleting message', { uid, folder })
       const lock = await this.client.getMailboxLock(folder)
       try {
         await this.client.messageFlagsAdd([uid], ['\\Deleted'], { uid: true })
@@ -717,7 +717,7 @@ export class ImapClient extends EventEmitter {
         lock.release()
       }
     } else {
-      logDelete(`Sposto uid=${uid} nel cestino "${trashFolder}"`)
+      logDelete('Moving message to trash', { uid, folder, destination: trashFolder })
       return await this.moveMessage(folder, uid, trashFolder)
     }
   }
@@ -726,10 +726,10 @@ export class ImapClient extends EventEmitter {
     const folders = getFolders()
     if (isJunk) {
       const junkFolder = folders.find(f => f.special_use === '\\Junk')?.path || 'Junk'
-      logMove(`Segno come spam uid=${uid} → "${junkFolder}"`)
+      logMove('Moving message to junk', { uid, folder, destination: junkFolder })
       return await this.moveMessage(folder, uid, junkFolder)
     } else {
-      logMove(`Rimuovo spam uid=${uid} → INBOX`)
+      logMove('Removing message from junk', { uid, folder, destination: 'INBOX' })
       return await this.moveMessage(folder, uid, 'INBOX')
     }
   }
@@ -784,11 +784,11 @@ export class ImapClient extends EventEmitter {
     try {
       const uids = await this.client.search({ seen: false }, { uid: true })
       if (uids?.length) {
-        logMail(`Segno come lette ${uids.length} email in "${folder}"`)
+        logMail('Marking all messages as read', { folder, count: uids.length })
         await this.client.messageFlagsAdd(uids, ['\\Seen'], { uid: true })
         for (const uid of uids) toggleMessageFlag(folder, uid, '\\Seen', true)
       } else {
-        logMail(`Nessuna email non letta in "${folder}"`)
+        logMail('No unread messages found', { folder })
       }
     } finally {
       lock.release()
@@ -801,11 +801,11 @@ export class ImapClient extends EventEmitter {
     try {
       const uids = await this.client.search({ all: true }, { uid: true })
       if (uids?.length) {
-        logDelete(`Svuoto "${folder}": elimino ${uids.length} email`)
+        logDelete('Emptying folder', { folder, count: uids.length })
         await this.client.messageFlagsAdd(uids, ['\\Deleted'], { uid: true })
         await this.client.messageDelete(uids, { uid: true })
         removeMessages(uids, folder)
-        logDelete(`"${folder}" svuotato`)
+        logDelete('Folder emptied', { folder })
       }
     } finally {
       lock.release()
@@ -814,7 +814,7 @@ export class ImapClient extends EventEmitter {
 
   async bulkSetFlag(folder, uids, flag, add) {
     if (!this.client) throw new Error('Not connected')
-    logMail(`Flag "${flag}" ${add ? '+' : '-'} su ${uids.length} email in "${folder}"`)
+    logMail('Updating message flag', { folder, flag, add, count: uids.length })
     const lock = await this.client.getMailboxLock(folder)
     try {
       if (add) {
@@ -832,7 +832,7 @@ export class ImapClient extends EventEmitter {
     if (!this.client) throw new Error('Not connected')
     const folders = getFolders()
     const trashFolder = folders.find(f => f.special_use === '\\Trash')?.path || 'Deleted Messages'
-    logDelete(`Elimino ${uids.length} email da "${folder}"`)
+    logDelete('Deleting messages', { folder, count: uids.length })
     const lock = await this.client.getMailboxLock(folder)
     try {
       if (folder === trashFolder) {
@@ -840,7 +840,7 @@ export class ImapClient extends EventEmitter {
         return await this.client.messageDelete(uids, { uid: true })
       } else {
         const result = await this.client.messageMove(uids, trashFolder, { uid: true })
-        logMove(`Spostate ${uids.length} email nel cestino "${trashFolder}"`)
+        logMove('Moved messages to trash', { folder, destination: trashFolder, count: uids.length })
         return result
       }
     } finally {
@@ -850,7 +850,7 @@ export class ImapClient extends EventEmitter {
 
   async bulkMove(folder, uids, destination) {
     if (!this.client) throw new Error('Not connected')
-    logMove(`Sposto ${uids.length} email da "${folder}" → "${destination}"`)
+    logMove('Moving messages', { folder, destination, count: uids.length })
     const lock = await this.client.getMailboxLock(folder)
     try {
       return await this.client.messageMove(uids, destination, { uid: true })

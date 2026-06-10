@@ -5,9 +5,11 @@ import { animateMessageRemoval } from '../motion'
 import {
   IconReply, IconReplyAll, IconForward, IconStar, IconMarkRead,
   IconTrash, IconNoSymbol, IconEnvelope, IconArchive,
-  IconFileImage, IconFileDoc, IconDownload, IconClose
+  IconFileImage, IconFileDoc, IconDownload
 } from './Icons'
 import SenderAvatar from './SenderAvatar'
+import AttachmentPreviewPanel from './AttachmentPreviewPanel'
+import { getPreviewableAttachmentIndexes, getAdjacentPreviewIndex } from '../attachmentNavigation'
 
 const ADDR_COLORS = [
   '#0071e3','#5e5ebc','#bf5af2','#ff6b35',
@@ -230,6 +232,7 @@ export default function ReadingPane() {
     if (!msg.folder) { setBodyLoading(false); return }  // guard: no IMAP calls without a folder
     setBody(null)
     setAttachmentMeta([])
+    setFilePreview(null)
     setInviteResponse('')
     setBodyLoading(true)
     setImagesLoadedByUser(false)
@@ -436,7 +439,7 @@ export default function ReadingPane() {
       )
       if (!dlResult.ok) { console.error('Download failed:', dlResult.error); return }
       const src = `kumo-local:///${dlResult.filePath.replace(/\\/g, '/')}`
-      setFilePreview({ src, filename: att.filename, isPdf, localPath: dlResult.filePath })
+      setFilePreview({ src, filename: att.filename, isPdf, localPath: dlResult.filePath, index: idx })
     } catch (err) {
       console.error('Preview error:', err.message)
     } finally {
@@ -445,8 +448,9 @@ export default function ReadingPane() {
   }
 
   async function handleSaveAttachment(att, idx) {
-    if (!msg) return
+    if (!msg || loadingIdx !== null) return
     const partId = att.partId || String(idx + 1)
+    setLoadingIdx(idx)
     try {
       const dlResult = await window.api.imap.downloadAttachment(
         msg.folder, msg.uid, partId, att.filename, state.auth.email
@@ -456,6 +460,8 @@ export default function ReadingPane() {
       }
     } catch (err) {
       console.error('Save error:', err.message)
+    } finally {
+      setLoadingIdx(null)
     }
   }
 
@@ -515,6 +521,14 @@ export default function ReadingPane() {
     }
     return parsedAtts
   })()
+  const previewableIndexes = getPreviewableAttachmentIndexes(attachments)
+  const previewPosition = filePreview ? previewableIndexes.indexOf(filePreview.index) : -1
+  const previousPreviewIndex = filePreview
+    ? getAdjacentPreviewIndex(previewableIndexes, filePreview.index, -1)
+    : null
+  const nextPreviewIndex = filePreview
+    ? getAdjacentPreviewIndex(previewableIndexes, filePreview.index, 1)
+    : null
 
   const hasRemoteImages = !!(body?.html && /src=["']https?:\/\//i.test(body.html))
 
@@ -525,47 +539,25 @@ export default function ReadingPane() {
   const iframeDoc = renderHtml ? buildEmailIframeDoc(renderHtml) : null
   const isExiting = state.messages.exitingKeys.includes(`${msg.folder}-${msg.uid}`)
 
+  if (filePreview) {
+    return (
+      <div className="reader reader--active">
+        <AttachmentPreviewPanel
+          preview={filePreview}
+          onClose={() => setFilePreview(null)}
+          onDownload={() => window.api.dialog.saveFile(filePreview.localPath, filePreview.filename)}
+          onPrevious={previousPreviewIndex === null ? null : () => handlePreviewAttachment(attachments[previousPreviewIndex], previousPreviewIndex)}
+          onNext={nextPreviewIndex === null ? null : () => handlePreviewAttachment(attachments[nextPreviewIndex], nextPreviewIndex)}
+          position={previewPosition + 1}
+          count={previewableIndexes.length}
+          t={t}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className={`reader reader--active${isExiting ? ' reader--exiting' : ''}`} key={`${msg.folder}-${msg.uid}`}>
-      {filePreview && (
-        <div
-          className="image-preview-overlay"
-          onClick={() => setFilePreview(null)}
-          onKeyDown={e => e.key === 'Escape' && setFilePreview(null)}
-          role="dialog"
-          aria-label={t('reading.imagePreview')}
-        >
-          <div className="image-preview-modal" onClick={e => e.stopPropagation()}>
-            <div className="image-preview-modal__header">
-              <span className="truncate" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>{filePreview.filename}</span>
-              <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
-                <button
-                  className="btn btn--ghost"
-                  style={{ fontSize: 'var(--text-sm)' }}
-                  onClick={() => window.api.dialog.saveFile(filePreview.localPath, filePreview.filename)}
-                >
-                  <IconDownload size={14} />
-                </button>
-                <button className="btn btn--icon" onClick={() => setFilePreview(null)} title={t('action.close')}>
-                  <IconClose size={16} />
-                </button>
-              </div>
-            </div>
-            <div className="image-preview-modal__body">
-              {filePreview.isPdf ? (
-                <iframe
-                  src={filePreview.src}
-                  title={filePreview.filename}
-                  style={{ width: '100%', height: '100%', border: 'none', borderRadius: 'var(--radius-md)' }}
-                />
-              ) : (
-                <img src={filePreview.src} alt={filePreview.filename} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 'var(--radius-md)' }} />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Header */}
       {threadMessages.length > 1 && (
         <div className="conversation-strip">
@@ -709,20 +701,35 @@ export default function ReadingPane() {
       {/* Attachments */}
       {attachments.length > 0 && (
         <div className="attach">
-          {attachments.map((att, i) => (
-            <div key={i} className="attach__chip" onClick={() => handlePreviewAttachment(att, i)}>
-              <div className="attach__ic" style={{ background: attachIconColor(att) }}>
-                {isImageFile(att) ? <IconFileImage size={17} /> : <IconFileDoc size={17} />}
+          {attachments.map((att, i) => {
+            const loading = loadingIdx === i
+            return (
+              <div
+                key={i}
+                className={`attach__chip${loading ? ' attach__chip--loading' : ''}`}
+                onClick={loading ? undefined : () => handlePreviewAttachment(att, i)}
+                aria-busy={loading}
+              >
+                <div className="attach__ic" style={{ background: attachIconColor(att) }}>
+                  {loading
+                    ? <span className="spinner spinner--sm" />
+                    : (isImageFile(att) ? <IconFileImage size={17} /> : <IconFileDoc size={17} />)}
+                </div>
+                <div>
+                  <div className="attach__name">{att.filename || att.name}</div>
+                  <div className="attach__size">{formatSize(att.size)}</div>
+                </div>
+                <button
+                  className="icon-btn"
+                  title={t('update.download')}
+                  disabled={loading}
+                  onClick={ev => { ev.stopPropagation(); handleSaveAttachment(att, i) }}
+                >
+                  <IconDownload size={15} />
+                </button>
               </div>
-              <div>
-                <div className="attach__name">{att.filename || att.name}</div>
-                <div className="attach__size">{formatSize(att.size)}</div>
-              </div>
-              <button className="icon-btn" title={t('update.download')} onClick={ev => { ev.stopPropagation(); handleSaveAttachment(att, i) }}>
-                <IconDownload size={15} />
-              </button>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 

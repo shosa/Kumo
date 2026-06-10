@@ -5,6 +5,7 @@ import ContactPickerModal from './ContactPickerModal'
 import QuotedMessagePreview from './QuotedMessagePreview'
 import { useAppearance } from '../appearance'
 import { buildQuotedMessage, combineComposeHtml } from '../composeReply'
+import { buildSignatureBlock } from '../signatureHtml'
 import {
   IconClose, IconAttach, IconSend, IconContacts
 } from './Icons'
@@ -240,10 +241,7 @@ export default function ComposeViewerApp({ composeData }) {
       setEditorContent(draft.body_html || '<p></p>')
       return
     }
-    const sig = settings.signature
-      ? `<p></p><p>--</p><p>${settings.signature}</p>`
-      : '<p></p>'
-    setEditorContent(sig)
+    setEditorContent(buildSignatureBlock(settings.signature))
   }, [mode, msg, settings.signature, draft])
 
   async function handleAttachFiles() {

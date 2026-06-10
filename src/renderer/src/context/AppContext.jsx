@@ -50,6 +50,7 @@ const initialState = {
     updatesEnabled: true,
     undoSendDelay: 10,
     conversationView: true,
+    closeBehavior: 'ask',
     smartFoldersExpanded: true,
     rulesVersion: 0
   },

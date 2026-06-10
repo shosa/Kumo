@@ -422,7 +422,7 @@ export async function discoverCalendars(email, password) {
 // ── Sync ──────────────────────────────────────────────────────────────────────
 
 async function fetchCalendarEvents(calUrl, auth) {
-  logCal(`Scarico eventi da "${calUrl}"`)
+  logCal(`Fetching events from "${calUrl}"`)
   // Time range: past 30 days to future 180 days
   const now = new Date()
   const start = new Date(now.getTime() - 30 * 86400000)
@@ -453,22 +453,22 @@ async function fetchCalendarEvents(calUrl, auth) {
   })
 
   if (res.status >= 400) {
-    logCal(`REPORT fallito (${res.status}), provo PROPFIND…`)
+    logCal(`REPORT failed (${res.status}), trying PROPFIND...`)
     const fallback = await followRedirects(calUrl, 'PROPFIND', auth, `<?xml version="1.0" encoding="UTF-8"?>
 <propfind xmlns="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
   <prop><getetag/><cal:calendar-data/></prop>
 </propfind>`)
     if (fallback.status >= 400) {
-      logCal(`PROPFIND fallito (${fallback.status}), nessun evento`)
+      logCal(`PROPFIND failed (${fallback.status}), no events found`)
       return []
     }
     const events = _parseEventResponses(fallback.body)
-    logCal(`PROPFIND: trovati ${events.length} eventi`)
+    logCal(`PROPFIND: found ${events.length} events`)
     return events
   }
 
   const events = _parseEventResponses(res.body)
-  logCal(`REPORT: trovati ${events.length} eventi`)
+  logCal(`REPORT: found ${events.length} events`)
   return events
 }
 
@@ -492,7 +492,7 @@ function _parseEventResponses(xmlBody) {
 }
 
 async function fetchCalendarTodos(calUrl, auth) {
-  logCal(`Scarico promemoria da "${calUrl}"`)
+  logCal(`Fetching reminders from "${calUrl}"`)
   const body = `<?xml version="1.0" encoding="UTF-8"?>
 <cal:calendar-query xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
   <d:prop>
@@ -512,20 +512,20 @@ async function fetchCalendarTodos(calUrl, auth) {
   })
 
   if (res.status >= 400) {
-    logCal(`REPORT VTODO fallito (${res.status}), skip`)
+    logCal(`VTODO REPORT failed (${res.status}), skipping`)
     return []
   }
 
   const items = _parseEventResponses(res.body)
-  logCal(`REPORT VTODO: trovati ${items.length} promemoria`)
+  logCal(`VTODO REPORT: found ${items.length} reminders`)
   return items
 }
 
 export async function syncCalendar(email, password, enabledHrefs = null) {
-  logCal(`Inizio sync calendario per ${email}`)
+  logCal(`Calendar sync started for ${email}`)
   const auth = { user: email, pass: password }
   const sources = await discoverCalendars(email, password)
-  logCal(`Trovati ${sources.length} calendario/i: ${sources.map(c => c.name).join(', ')}`)
+  logCal(`Found ${sources.length} calendars: ${sources.map(c => c.name).join(', ')}`)
   const allItems = []
 
   for (const cal of sources) {
@@ -542,11 +542,11 @@ export async function syncCalendar(email, password, enabledHrefs = null) {
         for (const td of todos) allItems.push({ ...td, calendar_id: cal.name, calendar_href: cal.href })
       }
     } catch (err) {
-      logWarn(`CalDAV: errore calendario "${cal.name}": ${err.message}`)
+      logWarn(`CalDAV calendar error "${cal.name}": ${err.message}`)
     }
   }
 
-  logCal(`Sync completato: ${allItems.filter(i => i.type !== 'task').length} eventi, ${allItems.filter(i => i.type === 'task').length} promemoria`)
+  logCal(`Calendar sync completed: ${allItems.filter(i => i.type !== 'task').length} events, ${allItems.filter(i => i.type === 'task').length} reminders`)
   return { items: allItems, sources }
 }
 
@@ -582,7 +582,7 @@ export async function saveCalendarItem(email, password, item) {
   else if (isNew) headers['If-None-Match'] = '*'
   const response = await followRedirects(href, 'PUT', auth, raw, headers)
   if (response.status < 200 || response.status >= 300) {
-    logWarn(`CalDAV PUT rifiutato su "${calendarHref}": ${describeDavError(response)}`)
+    logWarn(`CalDAV PUT rejected for "${calendarHref}": ${describeDavError(response)}`)
     throw new Error(`CalDAV PUT failed: ${describeDavError(response)}`)
   }
   return {

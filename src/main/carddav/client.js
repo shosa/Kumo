@@ -287,7 +287,7 @@ function _parseVCardResponses(xmlBody, baseUrl) {
 }
 
 async function fetchVCards(abUrl, auth) {
-  logContact(`Scarico contatti da "${abUrl}"`)
+  logContact(`Fetching contacts from "${abUrl}"`)
   // Strategy 1: addressbook-query REPORT (standard)
   const queryBody = `<?xml version="1.0" encoding="UTF-8"?>
 <C:addressbook-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav">
@@ -307,11 +307,11 @@ async function fetchVCards(abUrl, auth) {
 
   if (res.status < 400) {
     const contacts = _parseVCardResponses(res.body, abUrl)
-    logContact(`Strategia 1 (addressbook-query): trovati ${contacts.length} contatti`)
+    logContact(`Strategy 1 (addressbook-query): found ${contacts.length} contacts`)
     return contacts
   }
 
-  logContact(`Strategia 1 fallita (${res.status}), provo PROPFIND…`)
+  logContact(`Strategy 1 failed (${res.status}), trying PROPFIND...`)
   // Strategy 2: PROPFIND Depth:1 to collect .vcf hrefs, then multiget
   const propfindBody = `<?xml version="1.0" encoding="UTF-8"?>
 <D:propfind xmlns:D="DAV:">
@@ -347,11 +347,11 @@ async function fetchVCards(abUrl, auth) {
   }
 
   if (vcfHrefs.length === 0) {
-    logContact('Nessun .vcf trovato con PROPFIND')
+    logContact('No .vcf files found with PROPFIND')
     return []
   }
 
-  logContact(`Strategia 2: trovati ${vcfHrefs.length} href .vcf, avvio multiget…`)
+  logContact(`Strategy 2: found ${vcfHrefs.length} .vcf hrefs, starting multiget...`)
   // addressbook-multiget with the collected hrefs
   const hrefXml = vcfHrefs.map(h => `    <D:href>${h}</D:href>`).join('\n')
   const multigetBody = `<?xml version="1.0" encoding="UTF-8"?>
@@ -370,7 +370,7 @@ ${hrefXml}
 
   if (res.status >= 400) throw new Error(`CardDAV multiget failed: ${res.status}`)
   const contacts = _parseVCardResponses(res.body, abUrl)
-  logContact(`Strategia 2b (multiget): trovati ${contacts.length} contatti`)
+  logContact(`Strategy 2b (multiget): found ${contacts.length} contacts`)
   return contacts
 }
 
@@ -396,10 +396,10 @@ export async function dumpRawContacts(email, password) {
 }
 
 export async function syncContacts(email, password) {
-  logContact(`Inizio sync contatti per ${email}`)
+  logContact(`Contact sync started for ${email}`)
   const auth = { user: email, pass: password }
   const addressBooks = await discoverAddressBook(email, password)
-  logContact(`Trovate ${addressBooks.length} rubrica/e: ${addressBooks.map(a => a.name).join(', ')}`)
+  logContact(`Found ${addressBooks.length} address books: ${addressBooks.map(a => a.name).join(', ')}`)
   const allContacts = []
 
   for (const ab of addressBooks) {
@@ -407,11 +407,11 @@ export async function syncContacts(email, password) {
       const contacts = await fetchVCards(ab.href, auth)
       allContacts.push(...contacts)
     } catch (err) {
-      logWarn(`CardDAV: errore rubrica "${ab.name}": ${err.message}`)
+      logWarn(`CardDAV address book error "${ab.name}": ${err.message}`)
     }
   }
 
-  logContact(`Sync contatti completato: ${allContacts.length} contatti totali`)
+  logContact(`Contact sync completed: ${allContacts.length} contacts total`)
   return allContacts
 }
 

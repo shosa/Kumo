@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
-import { IconSignOut, IconGlobe, IconClearCache, IconCheck, IconFolderOpen, IconTrash } from './Icons'
+import {
+  IconSignOut, IconGlobe, IconClearCache, IconCheck, IconFolderOpen, IconTrash,
+  IconSettings, IconEdit, IconStar, IconNoSymbol, IconMarkRead, IconArchive,
+  IconRefresh, IconContacts
+} from './Icons'
+import RichTextEditor from './RichTextEditor'
 
 export default function Settings() {
   const state = useAppState()
@@ -33,6 +38,9 @@ export default function Settings() {
   const [logsCleared,      setLogsCleared]      = useState(false)
   const [storageError,     setStorageError]     = useState('')
   const [rules,            setRules]            = useState([])
+  const [activeCategory,   setActiveCategory]   = useState('general')
+  const [exportingLogs,    setExportingLogs]    = useState(false)
+  const [exportedLogs,     setExportedLogs]     = useState(false)
 
   useEffect(() => {
     window.api.store.getDbPath?.().then(r => { if (r?.ok) setDbPath(r.path || '') })
@@ -174,6 +182,21 @@ export default function Settings() {
     setClearingLogs(false)
   }
 
+  async function handleExportDiagnostics() {
+    if (exportingLogs) return
+    setExportingLogs(true)
+    setStorageError('')
+    const result = await window.api.store.exportDiagnostics()
+      .catch(err => ({ ok: false, error: err.message }))
+    if (result?.ok) {
+      setExportedLogs(true)
+      setTimeout(() => setExportedLogs(false), 2500)
+    } else if (!result?.canceled) {
+      setStorageError(result?.error || t('settings.storageError'))
+    }
+    setExportingLogs(false)
+  }
+
   async function handleClearContacts() {
     setClearingContacts(true)
     setStorageError('')
@@ -262,15 +285,41 @@ export default function Settings() {
     { key: 'attachments', value: storageUsage?.attachments || 0, color: '#7b61d1' },
     { key: 'logs', value: storageUsage?.logs || 0, color: '#d88a24' }
   ]
+  const categories = [
+    ['general', t('settings.category.general'), IconSettings],
+    ['writing', t('settings.category.writing'), IconEdit],
+    ['appearance', t('settings.category.appearance'), IconStar],
+    ['privacy', t('settings.category.privacy'), IconNoSymbol],
+    ['rules', t('settings.category.rules'), IconMarkRead],
+    ['data', t('settings.category.data'), IconArchive],
+    ['updates', t('settings.category.updates'), IconRefresh],
+    ['account', t('settings.category.account'), IconContacts]
+  ]
 
   return (
     <div className="full">
-      <div className="settings scroll">
+      <div className="settings">
+        <aside className="settings__nav" aria-label={t('settings.title')}>
+          <div className="settings__nav-title">{t('settings.title')}</div>
+          {categories.map(([key, label, CategoryIcon]) => (
+            <button
+              key={key}
+              className={`settings__nav-item${activeCategory === key ? ' active' : ''}`}
+              type="button"
+              onClick={() => setActiveCategory(key)}
+            >
+              <CategoryIcon size={16} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </aside>
+        <div className="settings__content scroll">
         <div className="settings__inner">
-          <div className="settings__title">{t('settings.title')}</div>
-          <div className="settings__sub">{t('settings.blockImagesDesc')}</div>
+          <div className="settings__title">{categories.find(([key]) => key === activeCategory)?.[1]}</div>
+          <div className="settings__sub">{t(`settings.category.${activeCategory}Desc`)}</div>
 
           {/* Aspetto */}
+          {activeCategory === 'appearance' && <>
           <div className="sset">
             <div className="sset__label">{t('settings.appearance')}</div>
             <div className="sset__card">
@@ -338,8 +387,10 @@ export default function Settings() {
               </div>
             </div>
           </div>
+          </>}
 
           {/* Privacy */}
+          {activeCategory === 'privacy' && (
           <div className="sset">
             <div className="sset__label">{t('settings.privacy')}</div>
             <div className="sset__card">
@@ -366,7 +417,57 @@ export default function Settings() {
               </div>
             </div>
           </div>
+          )}
 
+          {activeCategory === 'general' && (
+          <div className="sset">
+            <div className="sset__label">{t('settings.category.general')}</div>
+            <div className="sset__card">
+              <div className="srow">
+                <div className="srow__txt">
+                  <div className="srow__name">{t('settings.closeBehavior')}</div>
+                  <div className="srow__desc">{t('settings.closeBehaviorDesc')}</div>
+                </div>
+                <select
+                  value={s.closeBehavior || 'ask'}
+                  onChange={event => update('closeBehavior', event.target.value)}
+                  className="settings-select"
+                >
+                  <option value="ask">{t('settings.closeBehaviorAsk')}</option>
+                  <option value="tray">{t('settings.closeBehaviorTray')}</option>
+                  <option value="quit">{t('settings.closeBehaviorQuit')}</option>
+                </select>
+              </div>
+              <div className="srow">
+                <span className="settings-row-icon"><IconGlobe size={17} /></span>
+                <div className="srow__txt">
+                  <div className="srow__name">{t('settings.language')}</div>
+                  <div className="srow__desc">{t('settings.languageLabel')}</div>
+                </div>
+                <select
+                  value={s.language || 'it-IT'}
+                  onChange={e => update('language', e.target.value)}
+                  className="settings-select"
+                >
+                  <option value="it-IT">Italiano</option>
+                  <option value="en-US">English</option>
+                  <option value="fr-FR">Français</option>
+                  <option value="de-DE">Deutsch</option>
+                  <option value="es-ES">Español</option>
+                  <option value="pt-BR">Português (BR)</option>
+                  <option value="ru-RU">Русский</option>
+                  <option value="zh-CN">中文 (简体)</option>
+                  <option value="ja-JP">日本語</option>
+                  <option value="ko-KR">한국어</option>
+                  <option value="tr-TR">Türkçe</option>
+                  <option value="nl-NL">Nederlands</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          )}
+
+          {activeCategory === 'writing' && <>
           <div className="sset">
             <div className="sset__label">{t('settings.mailBehavior')}</div>
             <div className="sset__card">
@@ -399,7 +500,24 @@ export default function Settings() {
               </div>
             </div>
           </div>
+          <div className="sset">
+            <div className="sset__label">{t('settings.signature')}</div>
+            <div className="sset__card signature-settings">
+              <div className="signature-settings__intro">
+                <div className="srow__name">{t('settings.signature')}</div>
+                <div className="srow__desc">{t('settings.signatureDesc')}</div>
+              </div>
+              <RichTextEditor
+                value={s.signature || ''}
+                onChange={html => update('signature', html)}
+                placeholder={t('settings.signaturePlaceholder')}
+                className="signature-settings__editor"
+              />
+            </div>
+          </div>
+          </>}
 
+          {activeCategory === 'rules' && (
           <div className="sset">
             <div className="sset__label">{t('rules.title')}</div>
             <div className="sset__card rules-card">
@@ -485,8 +603,10 @@ export default function Settings() {
               </button>
             </div>
           </div>
+          )}
 
           {/* Dati e cache */}
+          {activeCategory === 'data' && (
           <div className="sset">
             <div className="sset__label">{t('settings.localStorage')}</div>
             <div className="storage-card">
@@ -557,6 +677,17 @@ export default function Settings() {
                 <div className="storage-advanced">
                   <div className="srow">
                     <div className="srow__txt">
+                      <div className="srow__name">{t('settings.exportDiagnostics')}</div>
+                      <div className="srow__desc">{t('settings.exportDiagnosticsDesc')}</div>
+                    </div>
+                    <button className="act" type="button" onClick={handleExportDiagnostics} disabled={exportingLogs}>
+                      {exportingLogs
+                        ? <span className="spinner" style={{ width: 12, height: 12 }} />
+                        : exportedLogs ? <IconCheck size={14} /> : t('settings.export')}
+                    </button>
+                  </div>
+                  <div className="srow">
+                    <div className="srow__txt">
                       <div className="srow__name">{t('settings.rebuildMailCache')}</div>
                       <div className="srow__desc">
                         {confirmRebuild ? t('settings.confirmRebuildMail') : t('settings.rebuildMailCacheDesc')}
@@ -625,8 +756,10 @@ export default function Settings() {
               </button>
             </div>
           </div>
+          )}
 
           {/* Updates */}
+          {activeCategory === 'updates' && (
           <div className="sset">
             <div className="sset__label">{t('settings.updates')}</div>
             <div className="sset__card">
@@ -678,8 +811,10 @@ export default function Settings() {
               </div>
             </div>
           </div>
+          )}
 
           {/* Account */}
+          {activeCategory === 'account' && (
           <div className="sset">
             <div className="sset__label">{t('settings.account')}</div>
             <div className="sset__card">
@@ -697,39 +832,11 @@ export default function Settings() {
                   <IconSignOut size={15} /> {t('settings.signOut')}
                 </button>
               </div>
-              <div className="srow">
-                <span style={{ color: 'var(--ink-3)', flexShrink: 0 }}><IconGlobe size={17} /></span>
-                <div className="srow__txt">
-                  <div className="srow__name">{t('settings.language')}</div>
-                  <div className="srow__desc">{t('settings.languageLabel')}</div>
-                </div>
-                <select
-                  value={s.language || 'it-IT'}
-                  onChange={e => update('language', e.target.value)}
-                  style={{
-                    background: 'var(--surface-3)', border: '1px solid var(--line)',
-                    borderRadius: 'var(--r-sm)', color: 'var(--ink)', fontSize: 12.5,
-                    padding: '5px 8px', cursor: 'pointer', flexShrink: 0,
-                    fontFamily: 'var(--sans)'
-                  }}
-                >
-                  <option value="it-IT">Italiano</option>
-                  <option value="en-US">English</option>
-                  <option value="fr-FR">Français</option>
-                  <option value="de-DE">Deutsch</option>
-                  <option value="es-ES">Español</option>
-                  <option value="pt-BR">Português (BR)</option>
-                  <option value="ru-RU">Русский</option>
-                  <option value="zh-CN">中文 (简体)</option>
-                  <option value="ja-JP">日本語</option>
-                  <option value="ko-KR">한국어</option>
-                  <option value="tr-TR">Türkçe</option>
-                  <option value="nl-NL">Nederlands</option>
-                </select>
-              </div>
             </div>
           </div>
+          )}
 
+        </div>
         </div>
       </div>
     </div>

@@ -72,3 +72,12 @@ for (const localeName of localeNames) {
     assert.deepEqual(mismatches, [])
   })
 }
+
+test('Italian locale does not contain replacement question marks inside words', () => {
+  const locale = JSON.parse(fs.readFileSync(path.join(localesRoot, 'it-IT.json'), 'utf8'))
+  const corrupted = Object.entries(locale)
+    .filter(([, value]) => /[A-Za-zÀ-ÿ]\?[A-Za-zÀ-ÿ]/.test(String(value)))
+    .map(([key]) => key)
+
+  assert.deepEqual(corrupted, [])
+})

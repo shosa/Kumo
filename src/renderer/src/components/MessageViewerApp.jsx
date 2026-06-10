@@ -6,6 +6,8 @@ import {
 import { locales } from '../i18n/index'
 import { useAppearance } from '../appearance'
 import SenderAvatar from './SenderAvatar'
+import AttachmentPreviewPanel from './AttachmentPreviewPanel'
+import { getPreviewableAttachmentIndexes, getAdjacentPreviewIndex } from '../attachmentNavigation'
 
 function AddressChip({ address, large, noCompose, senderLogoEnabled = false, folder = null }) {
   const a = typeof address === 'string' ? { email: address, name: '' } : (address || {})
@@ -259,6 +261,14 @@ export default function MessageViewerApp({ message }) {
   const isRead    = flags.includes('\\Seen')
   const isStarred = flags.includes('\\Flagged')
   const attachments = body?.attachments || []
+  const previewableIndexes = getPreviewableAttachmentIndexes(attachments)
+  const previewPosition = filePreview ? previewableIndexes.indexOf(filePreview.index) : -1
+  const previousPreviewIndex = filePreview
+    ? getAdjacentPreviewIndex(previewableIndexes, filePreview.index, -1)
+    : null
+  const nextPreviewIndex = filePreview
+    ? getAdjacentPreviewIndex(previewableIndexes, filePreview.index, 1)
+    : null
 
   const hasRemoteImages = !!(body?.html && /src=["']https?:\/\//i.test(body.html))
   const showBlockedBanner = hasRemoteImages && imagesBlocked && !imagesLoadedByUser
@@ -308,20 +318,24 @@ export default function MessageViewerApp({ message }) {
       )
       if (!dlResult.ok) return
       const src = `kumo-local:///${dlResult.filePath.replace(/\\/g, '/')}`
-      setFilePreview({ src, filename: att.filename, isPdf, localPath: dlResult.filePath })
+      setFilePreview({ src, filename: att.filename, isPdf, localPath: dlResult.filePath, index: idx })
     } catch { /* ignore */ } finally {
       setLoadingIdx(null)
     }
   }
 
   async function handleSaveAttachment(att, idx) {
+    if (loadingIdx !== null) return
     const partId = att.partId || String(idx + 1)
+    setLoadingIdx(idx)
     try {
       const dlResult = await window.api.imap.downloadAttachment(
         message.folder, message.uid, partId, att.filename, message.account_email || ''
       )
       if (dlResult.ok) await window.api.dialog.saveFile(dlResult.filePath, att.filename)
-    } catch { /* ignore */ }
+    } catch { /* ignore */ } finally {
+      setLoadingIdx(null)
+    }
   }
 
   // Context menu handlers
@@ -388,6 +402,25 @@ export default function MessageViewerApp({ message }) {
         break
     }
     setContextMenu({ ...contextMenu, isVisible: false })
+  }
+
+  if (filePreview) {
+    return (
+      <div className="viewer-window">
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 150, height: 32, WebkitAppRegion: 'drag', zIndex: 9999, pointerEvents: 'none' }} />
+        <AttachmentPreviewPanel
+          preview={filePreview}
+          onClose={() => setFilePreview(null)}
+          onDownload={() => window.api.dialog.saveFile(filePreview.localPath, filePreview.filename)}
+          onPrevious={previousPreviewIndex === null ? null : () => handlePreviewAttachment(attachments[previousPreviewIndex], previousPreviewIndex)}
+          onNext={nextPreviewIndex === null ? null : () => handlePreviewAttachment(attachments[nextPreviewIndex], nextPreviewIndex)}
+          position={previewPosition + 1}
+          count={previewableIndexes.length}
+          t={t}
+          standalone
+        />
+      </div>
+    )
   }
 
   return (
@@ -536,47 +569,15 @@ export default function MessageViewerApp({ message }) {
                 <div className="attachment-chip__sep" />
                 <button
                   className="attachment-chip__dl-btn"
+                  disabled={loading}
                   onClick={e => { e.stopPropagation(); handleSaveAttachment(att, i) }}
                   title={t('action.saveFile')}
                 >
-                  <IconDownload size={13} />
+                  {loading ? <span className="spinner spinner--sm" /> : <IconDownload size={13} />}
                 </button>
               </div>
             )
           })}
-        </div>
-      )}
-
-      {filePreview && (
-        <div
-          className="image-preview-overlay"
-          onClick={() => setFilePreview(null)}
-          aria-label={t('reading.imagePreview')}
-        >
-          <div className="image-preview-modal" onClick={e => e.stopPropagation()}>
-            <div className="image-preview-modal__header">
-              <span className="truncate" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>{filePreview.filename}</span>
-              <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
-                <button
-                  className="btn btn--ghost"
-                  style={{ fontSize: 'var(--text-sm)' }}
-                  onClick={() => window.api.dialog.saveFile(filePreview.localPath, filePreview.filename)}
-                >
-                  <IconDownload size={14} />
-                </button>
-                <button className="btn btn--icon" onClick={() => setFilePreview(null)}>
-                  <IconClose size={16} />
-                </button>
-              </div>
-            </div>
-            <div className="image-preview-modal__body">
-              {filePreview.isPdf ? (
-                <iframe src={filePreview.src} title={filePreview.filename} style={{ width: '100%', height: '100%', border: 'none', borderRadius: 'var(--radius-md)' }} />
-              ) : (
-                <img src={filePreview.src} alt={filePreview.filename} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 'var(--radius-md)' }} />
-              )}
-            </div>
-          </div>
         </div>
       )}
 

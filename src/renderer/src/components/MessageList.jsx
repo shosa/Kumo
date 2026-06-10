@@ -50,6 +50,11 @@ export default function MessageList() {
   const [isSyncing, setIsSyncing] = useState(false)
   const [arrivalPulse, setArrivalPulse] = useState(false)
   const [mailRules, setMailRules] = useState([])
+  const [advancedSearchOpen, setAdvancedSearchOpen] = useState(false)
+  const [advancedCriteria, setAdvancedCriteria] = useState({
+    from: '', to: '', subject: '', dateFrom: '', dateTo: '',
+    unread: false, starred: false, hasAttachments: false
+  })
 
   const folder = state.folders.selected
 
@@ -222,7 +227,23 @@ export default function MessageList() {
 
   function clearSearch() {
     setLocalSearch('')
+    setAdvancedCriteria({
+      from: '', to: '', subject: '', dateFrom: '', dateTo: '',
+      unread: false, starred: false, hasAttachments: false
+    })
     dispatch({ type: 'CLEAR_SEARCH' })
+  }
+
+  async function runAdvancedSearch() {
+    const criteria = { text: localSearch, ...advancedCriteria }
+    const hasCriteria = Object.values(criteria).some(value => value === true || String(value || '').trim())
+    if (!hasCriteria) {
+      dispatch({ type: 'CLEAR_SEARCH' })
+      return
+    }
+    dispatch({ type: 'SET_SEARCH_QUERY', payload: localSearch || t('search.advanced') })
+    const result = await window.api.store.searchLocal(criteria)
+    if (result.ok) dispatch({ type: 'SET_SEARCH_RESULTS', payload: result.results || [] })
   }
 
   function handleContextAction(type, messages, data) {
@@ -391,6 +412,39 @@ export default function MessageList() {
             : <kbd>Ctrl+K</kbd>
           }
         </div>
+        <button
+          className={`advanced-search-toggle${advancedSearchOpen ? ' active' : ''}`}
+          type="button"
+          onClick={() => setAdvancedSearchOpen(value => !value)}
+        >
+          {t('search.advanced')}
+        </button>
+        {advancedSearchOpen && (
+          <div className="advanced-search">
+            <label><span>{t('search.from')}</span><input value={advancedCriteria.from} onChange={e => setAdvancedCriteria(c => ({ ...c, from: e.target.value }))} /></label>
+            <label><span>{t('search.to')}</span><input value={advancedCriteria.to} onChange={e => setAdvancedCriteria(c => ({ ...c, to: e.target.value }))} /></label>
+            <label className="advanced-search__wide"><span>{t('search.subject')}</span><input value={advancedCriteria.subject} onChange={e => setAdvancedCriteria(c => ({ ...c, subject: e.target.value }))} /></label>
+            <label><span>{t('search.fromDate')}</span><input type="date" value={advancedCriteria.dateFrom} onChange={e => setAdvancedCriteria(c => ({ ...c, dateFrom: e.target.value }))} /></label>
+            <label><span>{t('search.toDate')}</span><input type="date" value={advancedCriteria.dateTo} onChange={e => setAdvancedCriteria(c => ({ ...c, dateTo: e.target.value }))} /></label>
+            <div className="advanced-search__checks advanced-search__wide">
+              {[
+                ['unread', t('filter.unread')],
+                ['starred', t('filter.starred')],
+                ['hasAttachments', t('search.hasAttachments')]
+              ].map(([key, label]) => (
+                <label key={key}>
+                  <input
+                    type="checkbox"
+                    checked={advancedCriteria[key]}
+                    onChange={e => setAdvancedCriteria(c => ({ ...c, [key]: e.target.checked }))}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+              <button className="act act--primary" type="button" onClick={runAdvancedSearch}>{t('search.apply')}</button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="list__filters">

@@ -1,6 +1,7 @@
 import { ipcMain, app } from 'electron'
 import { logDebug, logErr, logInfo } from './logger.js'
 import { createUpdateChecker, resolveAutoUpdaterModule } from './updaterCheck.js'
+import { installDownloadedUpdate } from './updaterInstall.js'
 
 let _sender = null
 let _autoUpdater = null
@@ -62,7 +63,7 @@ async function checkForUpdates() {
   }
 }
 
-export function initUpdater(mainWindow) {
+export function initUpdater(mainWindow, { requestExit = () => {} } = {}) {
   _sender = mainWindow.webContents
 
   if (!_registered) {
@@ -88,7 +89,7 @@ export function initUpdater(mainWindow) {
 
     ipcMain.handle('updater:install', async () => {
       const au = await getAutoUpdater()
-      au?.quitAndInstall(false, true)
+      installDownloadedUpdate(au, requestExit)
     })
 
     _registered = true

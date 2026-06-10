@@ -5,6 +5,7 @@ import RichTextEditor from './RichTextEditor'
 import ContactPickerModal from './ContactPickerModal'
 import QuotedMessagePreview from './QuotedMessagePreview'
 import { buildQuotedMessage, combineComposeHtml } from '../composeReply'
+import { buildSignatureBlock } from '../signatureHtml'
 import {
   IconClose, IconAttach, IconSend, IconContacts
 } from './Icons'
@@ -293,10 +294,7 @@ export default function ComposeWindow() {
   }
 
   useEffect(() => {
-    const sig = state.settings.signature
-      ? `<p></p><p>--</p><p>${state.settings.signature}</p>`
-      : '<p></p>'
-    setEditorContent(sig)
+    setEditorContent(buildSignatureBlock(state.settings.signature))
   }, [mode, msg, state.settings.signature])
 
   useEffect(() => {

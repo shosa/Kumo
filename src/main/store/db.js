@@ -4,6 +4,7 @@ import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { logErr, logWarn } from '../logger.js'
 import { buildOptimisticMovePlan, normalizeUidMap } from '../optimisticMove.js'
+import { buildAdvancedSearchWhere } from './searchCriteria.js'
 import {
   clearReclaimableCache as clearReclaimableCacheTables,
   rebuildMailCache as rebuildMailCacheTables
@@ -828,6 +829,20 @@ export function getFolders() {
 }
 
 export function searchMessages(query) {
+  if (query && typeof query === 'object') {
+    const d = getDB()
+    const { clause, params } = buildAdvancedSearchWhere(query)
+    const stmt = d.prepare(`
+      SELECT uid, folder, subject, from_name, from_email, to_addresses,
+             date, flags, snippet, has_attachments, thread_id
+      FROM messages
+      WHERE ${clause}
+      ORDER BY date DESC
+      LIMIT 200
+    `)
+    stmt.bind(params)
+    return allRows(stmt).map(r => ({ ...r, flags: JSON.parse(r.flags || '[]') }))
+  }
   if (!query?.trim()) return []
   const d = getDB()
   try {

@@ -104,6 +104,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('store:rebuild-mail-cache'),
     clearLogs: () =>
       ipcRenderer.invoke('store:clear-logs'),
+    exportDiagnostics: () =>
+      ipcRenderer.invoke('store:export-diagnostics'),
     readLocalFile: (filePath) =>
       ipcRenderer.invoke('store:read-local-file', filePath)
   },

@@ -47,6 +47,8 @@ import { createSenderLogoResolver } from './senderLogoResolver.js'
 import { isLocalAppUrl, shouldBlockFrameNavigation } from './frameNavigation.js'
 import { clearDirectoryContents, getDirectorySize, getFileSize } from './storageFiles.js'
 import { printKumoTerminalBanner } from './devBanner.js'
+import { createAppExitController, createWindowCloseHandler } from './appExit.js'
+import { buildDiagnosticReportText } from './diagnosticReport.js'
 
 // In dev mode, isolate data from the production install
 if (process.env.ELECTRON_RENDERER_URL) {
@@ -62,6 +64,7 @@ app.setAppUserModelId(WINDOWS_APP_ID)
 
 let mainWindow = null
 let tray = null
+const appExit = createAppExitController()
 const imapCoordinator = new ImapOperationCoordinator()
 const imapClients = new Map()   // email → ImapClient
 const unreadCounts = new Map()  // email → number
@@ -89,6 +92,158 @@ function getResourcePath(filename) {
   }
   return join(process.resourcesPath, 'resources', filename)
 }
+
+function requestAppExit() {
+  appExit.requestExit()
+  if (tray) {
+    tray.destroy()
+    tray = null
+  }
+}
+
+const CLOSE_DIALOG_STRINGS = {
+  'en-US': {
+    title: 'Close Kumo',
+    message: 'What should Kumo do when you close the window?',
+    detail: 'You can change this later in Settings.',
+    tray: 'Minimize to tray',
+    quit: 'Close Kumo',
+    cancel: 'Cancel',
+    remember: "Remember my choice and don't ask again"
+  },
+  'it-IT': {
+    title: 'Chiudi Kumo',
+    message: 'Cosa deve fare Kumo quando chiudi la finestra?',
+    detail: 'Puoi cambiare questa scelta in seguito dalle Impostazioni.',
+    tray: 'Riduci nella tray',
+    quit: 'Chiudi Kumo',
+    cancel: 'Annulla',
+    remember: 'Ricorda la scelta e non chiedere più'
+  },
+  'de-DE': {
+    title: 'Kumo schließen',
+    message: 'Was soll Kumo beim Schließen des Fensters tun?',
+    detail: 'Sie können diese Auswahl später in den Einstellungen ändern.',
+    tray: 'In den Infobereich minimieren',
+    quit: 'Kumo schließen',
+    cancel: 'Abbrechen',
+    remember: 'Auswahl merken und nicht erneut fragen'
+  },
+  'es-ES': {
+    title: 'Cerrar Kumo',
+    message: '¿Qué debe hacer Kumo al cerrar la ventana?',
+    detail: 'Puedes cambiar esta opción más tarde en Ajustes.',
+    tray: 'Minimizar a la bandeja',
+    quit: 'Cerrar Kumo',
+    cancel: 'Cancelar',
+    remember: 'Recordar mi elección y no volver a preguntar'
+  },
+  'fr-FR': {
+    title: 'Fermer Kumo',
+    message: 'Que doit faire Kumo lorsque vous fermez la fenêtre ?',
+    detail: 'Vous pourrez modifier ce choix ultérieurement dans les paramètres.',
+    tray: 'Réduire dans la zone de notification',
+    quit: 'Fermer Kumo',
+    cancel: 'Annuler',
+    remember: 'Mémoriser mon choix et ne plus demander'
+  },
+  'ja-JP': {
+    title: 'Kumoを閉じる',
+    message: 'ウィンドウを閉じるとき、Kumoをどうしますか？',
+    detail: 'この設定は後で変更できます。',
+    tray: 'トレイに最小化',
+    quit: 'Kumoを終了',
+    cancel: 'キャンセル',
+    remember: '選択を記憶して今後確認しない'
+  },
+  'ko-KR': {
+    title: 'Kumo 닫기',
+    message: '창을 닫을 때 Kumo를 어떻게 처리할까요?',
+    detail: '이 선택은 나중에 설정에서 변경할 수 있습니다.',
+    tray: '트레이로 최소화',
+    quit: 'Kumo 종료',
+    cancel: '취소',
+    remember: '선택을 기억하고 다시 묻지 않기'
+  },
+  'nl-NL': {
+    title: 'Kumo sluiten',
+    message: 'Wat moet Kumo doen wanneer u het venster sluit?',
+    detail: 'U kunt deze keuze later wijzigen in Instellingen.',
+    tray: 'Minimaliseren naar systeemvak',
+    quit: 'Kumo sluiten',
+    cancel: 'Annuleren',
+    remember: 'Mijn keuze onthouden en niet opnieuw vragen'
+  },
+  'pt-BR': {
+    title: 'Fechar o Kumo',
+    message: 'O que o Kumo deve fazer quando você fechar a janela?',
+    detail: 'Você pode alterar esta opção depois nas Configurações.',
+    tray: 'Minimizar para a bandeja',
+    quit: 'Fechar o Kumo',
+    cancel: 'Cancelar',
+    remember: 'Lembrar minha escolha e não perguntar novamente'
+  },
+  'ru-RU': {
+    title: 'Закрыть Kumo',
+    message: 'Что должен сделать Kumo при закрытии окна?',
+    detail: 'Этот выбор можно изменить позже в настройках.',
+    tray: 'Свернуть в область уведомлений',
+    quit: 'Закрыть Kumo',
+    cancel: 'Отмена',
+    remember: 'Запомнить выбор и больше не спрашивать'
+  },
+  'tr-TR': {
+    title: "Kumo'yu kapat",
+    message: 'Pencere kapatıldığında Kumo ne yapsın?',
+    detail: 'Bu seçimi daha sonra Ayarlar bölümünden değiştirebilirsiniz.',
+    tray: 'Sistem tepsisine küçült',
+    quit: "Kumo'yu kapat",
+    cancel: 'İptal',
+    remember: 'Seçimimi hatırla ve bir daha sorma'
+  },
+  'zh-CN': {
+    title: '关闭 Kumo',
+    message: '关闭窗口时，Kumo 应执行什么操作？',
+    detail: '稍后可在设置中更改此选项。',
+    tray: '最小化到托盘',
+    quit: '关闭 Kumo',
+    cancel: '取消',
+    remember: '记住我的选择且不再询问'
+  }
+}
+
+function getCloseDialogStrings() {
+  let language = 'en-US'
+  try { language = getSettings().language || 'en-US' } catch { /* use default */ }
+  return CLOSE_DIALOG_STRINGS[language] || CLOSE_DIALOG_STRINGS['en-US']
+}
+
+const handleMainWindowClose = createWindowCloseHandler({
+  exitController: appExit,
+  hasTray: () => Boolean(tray),
+  getBehavior: () => {
+    try { return getSettings().closeBehavior } catch { return 'ask' }
+  },
+  showPrompt: () => {
+    const strings = getCloseDialogStrings()
+    return dialog.showMessageBox(mainWindow, {
+      type: 'question',
+      buttons: [strings.tray, strings.quit, strings.cancel],
+      defaultId: 0,
+      cancelId: 2,
+      title: strings.title,
+      message: strings.message,
+      detail: strings.detail,
+      checkboxLabel: strings.remember,
+      checkboxChecked: false,
+      noLink: true
+    })
+  },
+  saveBehavior: behavior => saveSetting('closeBehavior', behavior),
+  hideWindow: () => mainWindow?.hide(),
+  requestExit: requestAppExit,
+  quitApp: () => app.quit()
+})
 
 function _attachExternalLinkHandler(win) {
   const navigationOptions = { rendererUrl: process.env.ELECTRON_RENDERER_URL }
@@ -164,10 +319,9 @@ function createWindow() {
   _attachExternalLinkHandler(mainWindow)
 
   mainWindow.on('close', (e) => {
-    if (tray) {
-      e.preventDefault()
-      mainWindow.hide()
-    }
+    handleMainWindowClose(e).catch(err => {
+      logErr('Close behavior dialog failed', { error: err.message })
+    })
   })
 }
 
@@ -1000,6 +1154,37 @@ ipcMain.handle('store:clear-logs', async () => {
   }
 })
 
+ipcMain.handle('store:export-diagnostics', async () => {
+  try {
+    const result = await dialog.showSaveDialog({
+      defaultPath: `Kumo-diagnostics-${new Date().toISOString().slice(0, 10)}.txt`,
+      buttonLabel: 'Export',
+      filters: [{ name: 'Text report', extensions: ['txt'] }]
+    })
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true }
+
+    const { readdir, readFile, writeFile } = await import('fs/promises')
+    const logsDir = join(app.getPath('userData'), 'logs')
+    const names = await readdir(logsDir).catch(() => [])
+    const logs = []
+    for (const name of names.filter(name => name.startsWith('kumo.log')).sort()) {
+      logs.push({ name, content: await readFile(join(logsDir, name), 'utf8').catch(() => '') })
+    }
+    const report = buildDiagnosticReportText({
+      appVersion: app.getVersion(),
+      platform: `${process.platform} ${process.arch}`,
+      locale: app.getLocale(),
+      logs
+    })
+    await writeFile(result.filePath, report, 'utf8')
+    logInfo('Diagnostic report exported', { file: result.filePath, logFiles: logs.length })
+    return { ok: true, filePath: result.filePath }
+  } catch (err) {
+    logErr('Diagnostic report export failed', { error: err.message })
+    return { ok: false, error: err.message }
+  }
+})
+
 ipcMain.handle('store:clear-body-cache', async () => {
   try {
     clearBodyCache()
@@ -1212,7 +1397,7 @@ ipcMain.handle('rules:delete', async (_e, id) => {
 ipcMain.handle('contacts:sync', async (_e, email, password) => {
   try {
     const contacts = await syncContacts(email, password)
-    logContact(`[contacts:sync] trovati ${contacts.length} contatti, avvio upsert...`)
+    logContact('[contacts:sync] Contacts fetched, starting upsert', { count: contacts.length })
     let saved = 0, failed = 0
     for (const c of contacts) {
       try {
@@ -1220,13 +1405,17 @@ ipcMain.handle('contacts:sync', async (_e, email, password) => {
         saved++
       } catch (err) {
         failed++
-        if (failed <= 3) logErr(`[contacts:sync] upsert fallito per "${c.display_name}" (uid=${c.id}): ${err.message}`)
+        if (failed <= 3) logErr('[contacts:sync] Contact upsert failed', {
+          name: c.display_name,
+          uid: c.id,
+          error: err.message
+        })
       }
     }
-    logContact(`[contacts:sync] completato: ${saved} salvati, ${failed} falliti`)
+    logContact('[contacts:sync] Completed', { saved, failed })
     return { ok: true, count: saved }
   } catch (err) {
-    logErr(`[contacts:sync] errore generale: ${err.message}`)
+    logErr('[contacts:sync] Failed', { error: err.message })
     return { ok: false, error: err.message }
   }
 })
@@ -1234,10 +1423,10 @@ ipcMain.handle('contacts:sync', async (_e, email, password) => {
 ipcMain.handle('contacts:list', async (_e, email) => {
   try {
     const contacts = getContacts(email)
-    logContact(`[contacts:list] restituiti ${contacts.length} contatti per ${email}`)
+    logContact('[contacts:list] Contacts returned', { account: email, count: contacts.length })
     return { ok: true, contacts }
   } catch (err) {
-    logErr(`[contacts:list] errore: ${err.message}`)
+    logErr('[contacts:list] Failed', { error: err.message })
     return { ok: false, error: err.message }
   }
 })
@@ -1288,26 +1477,26 @@ ipcMain.handle('contacts:clear', async (_e, email) => {
 })
 
 ipcMain.handle('contacts:dump-raw', async (_e, email, password) => {
-  logContact(`[dump-raw] avvio per ${email}`)
+  logContact('[dump-raw] Started', { account: email })
   try {
-    logContact('[dump-raw] chiamata dumpRawContacts...')
+    logContact('[dump-raw] Fetching raw contacts')
     const raw = await dumpRawContacts(email, password)
-    logContact(`[dump-raw] ricevuti ${raw.length} caratteri, apro save dialog`)
+    logContact('[dump-raw] Raw contacts received, opening save dialog', { characters: raw.length })
     const result = await dialog.showSaveDialog({
       defaultPath: `carddav-raw-${Date.now()}.txt`,
       filters: [{ name: 'Text files', extensions: ['txt'] }],
       buttonLabel: 'Salva dump'
     })
     if (result.canceled || !result.filePath) {
-      logContact('[dump-raw] dialog annullato')
+      logContact('[dump-raw] Save dialog canceled')
       return { ok: false }
     }
     const { writeFileSync } = await import('fs')
     writeFileSync(result.filePath, raw, 'utf8')
-    logContact(`[dump-raw] salvato in ${result.filePath}`)
+    logContact('[dump-raw] Saved', { file: result.filePath })
     return { ok: true, filePath: result.filePath }
   } catch (err) {
-    logErr(`[dump-raw] errore: ${err.message}`)
+    logErr('[dump-raw] Failed', { error: err.message })
     return { ok: false, error: err.message }
   }
 })
@@ -1662,14 +1851,14 @@ async function confirmAndQuit() {
     })
     if (response === 0) {
       await flushSyncQueue(imapClients, imapCoordinator).catch(() => {})
-      tray = null
+      requestAppExit()
       app.quit()
     } else if (response === 1) {
-      tray = null
+      requestAppExit()
       app.quit()
     }
   } else {
-    tray = null
+    requestAppExit()
     app.quit()
   }
 }
@@ -1728,7 +1917,7 @@ app.whenReady().then(async () => {
   })
   createWindow()
   createTray()
-  initUpdater(mainWindow)
+  initUpdater(mainWindow, { requestExit: requestAppExit })
 
   let storedEmails = []
   try {
@@ -1767,6 +1956,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', async () => {
+  appExit.requestExit()
   stopSyncRunner()
   for (const client of imapClients.values()) {
     await client.disconnect().catch(() => {})
