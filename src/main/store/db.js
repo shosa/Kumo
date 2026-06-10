@@ -9,6 +9,9 @@ import {
   clearReclaimableCache as clearReclaimableCacheTables,
   rebuildMailCache as rebuildMailCacheTables
 } from '../cacheMaintenance.js'
+import { normalizeGlobalQuery, shapeGlobalSearchResults } from '../globalSearch.js'
+import { normalizeActivity } from '../activityStore.js'
+import { eventMatchesContact, messageMatchesContact, normalizeContactEmail } from '../contactInsights.js'
 
 let db = null
 let SQL = null
@@ -188,6 +191,12 @@ export async function initDB() {
     _migrate11(db)
   } catch (err) {
     logErr('Database migration failed', { version: 11, fatal: false, error: err.message })
+  }
+
+  try {
+    _migrate12(db)
+  } catch (err) {
+    logErr('Database migration failed', { version: 12, fatal: false, error: err.message })
   }
 
   persistDB()
@@ -614,6 +623,33 @@ function _migrate11(d) {
   d.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('schemaVersion', '11')`)
 }
 
+function _migrate12(d) {
+  let ver = 0
+  try {
+    const s = d.prepare(`SELECT value FROM settings WHERE key = 'schemaVersion'`)
+    if (s.step()) ver = parseInt(JSON.parse(s.getAsObject().value), 10) || 0
+    s.free()
+  } catch { /* ignore */ }
+  if (ver >= 12) return
+
+  d.run(`
+    CREATE TABLE IF NOT EXISTS activity_log (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_email TEXT,
+      category      TEXT NOT NULL,
+      status        TEXT NOT NULL,
+      title         TEXT NOT NULL,
+      detail        TEXT,
+      operation     TEXT,
+      retryable     INTEGER DEFAULT 0,
+      metadata_json TEXT DEFAULT '{}',
+      created_at    INTEGER NOT NULL
+    )
+  `)
+  d.run(`CREATE INDEX IF NOT EXISTS idx_activity_account_time ON activity_log(account_email, created_at DESC)`)
+  d.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('schemaVersion', '12')`)
+}
+
 export function getDB() {
   if (!db) throw new Error('DB not initialized — call initDB() first')
   return db
@@ -903,6 +939,52 @@ export function searchMessages(query) {
     const rows = allRows(stmt)
     return rows.map(r => ({ ...r, flags: JSON.parse(r.flags || '[]') }))
   }
+}
+
+export function globalSearch(query, accountEmail, limit = 8) {
+  const normalized = normalizeGlobalQuery(query)
+  if (normalized.length < 2) return shapeGlobalSearchResults({})
+  const d = getDB()
+  const like = `%${normalized}%`
+  const boundedLimit = Math.max(1, Math.min(20, Number(limit) || 8))
+  const messages = searchMessages(normalized).slice(0, boundedLimit)
+
+  const attachmentStmt = d.prepare(`
+    SELECT a.id, a.uid, a.folder, a.filename, a.content_type, a.size,
+           m.subject, m.from_name, m.from_email, m.date, m.flags, m.snippet, m.thread_id
+    FROM attachments a
+    JOIN messages m ON m.uid = a.uid AND m.folder = a.folder
+    WHERE a.filename LIKE ?
+    ORDER BY m.date DESC
+    LIMIT ?
+  `)
+  attachmentStmt.bind([like, boundedLimit])
+  const attachments = allRows(attachmentStmt).map(row => ({
+    ...row,
+    flags: JSON.parse(row.flags || '[]')
+  }))
+
+  const contactStmt = d.prepare(`
+    SELECT * FROM contacts
+    WHERE (? IS NULL OR account_email = ? OR account_email IS NULL)
+      AND (display_name LIKE ? OR email LIKE ? OR organization LIKE ?)
+    ORDER BY display_name ASC
+    LIMIT ?
+  `)
+  contactStmt.bind([accountEmail || null, accountEmail || null, like, like, like, boundedLimit])
+  const contacts = allRows(contactStmt).map(row => _hydrateContact(row))
+
+  const eventStmt = d.prepare(`
+    SELECT * FROM calendar_events
+    WHERE (? IS NULL OR account_email = ? OR account_email IS NULL)
+      AND (title LIKE ? OR description LIKE ? OR location LIKE ?)
+    ORDER BY start_ts DESC
+    LIMIT ?
+  `)
+  eventStmt.bind([accountEmail || null, accountEmail || null, like, like, like, boundedLimit])
+  const events = allRows(eventStmt).map(row => _hydrateEvent(row))
+
+  return shapeGlobalSearchResults({ messages, attachments, contacts, events }, boundedLimit)
 }
 
 export function getSettings() {
@@ -1387,6 +1469,63 @@ export function getStorageCounts() {
   }
 }
 
+export function addActivity(entry) {
+  const d = getDB()
+  const normalized = normalizeActivity(entry)
+  d.run(`
+    INSERT INTO activity_log
+      (account_email, category, status, title, detail, operation, retryable, metadata_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [
+    normalized.account_email, normalized.category, normalized.status,
+    normalized.title, normalized.detail, normalized.operation,
+    normalized.retryable, normalized.metadata_json, normalized.created_at
+  ])
+  d.run(`
+    DELETE FROM activity_log
+    WHERE id NOT IN (
+      SELECT id FROM activity_log ORDER BY created_at DESC, id DESC LIMIT 300
+    )
+  `)
+  scheduleSave()
+  return normalized
+}
+
+export function getActivities(accountEmail, category, limit = 100) {
+  const d = getDB()
+  const boundedLimit = Math.max(1, Math.min(300, Number(limit) || 100))
+  const clauses = []
+  const params = []
+  if (accountEmail) {
+    clauses.push(`(account_email = ? OR account_email IS NULL)`)
+    params.push(accountEmail)
+  }
+  if (category && category !== 'all') {
+    clauses.push(`category = ?`)
+    params.push(category)
+  }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
+  const stmt = d.prepare(`
+    SELECT * FROM activity_log
+    ${where}
+    ORDER BY created_at DESC, id DESC
+    LIMIT ?
+  `)
+  stmt.bind([...params, boundedLimit])
+  return allRows(stmt).map(row => {
+    let metadata = {}
+    try { metadata = JSON.parse(row.metadata_json || '{}') } catch { /* ignore */ }
+    return { ...row, metadata }
+  })
+}
+
+export function clearActivities(accountEmail) {
+  const d = getDB()
+  if (accountEmail) d.run(`DELETE FROM activity_log WHERE account_email = ? OR account_email IS NULL`, [accountEmail])
+  else d.run(`DELETE FROM activity_log`)
+  scheduleSave()
+}
+
 export function resetAllData() {
   const d = getDB()
   d.run(`DELETE FROM messages`)
@@ -1402,6 +1541,7 @@ export function resetAllData() {
   d.run(`DELETE FROM sync_queue`)
   d.run(`DELETE FROM outbox`)
   d.run(`DELETE FROM sender_logo_cache`)
+  d.run(`DELETE FROM activity_log`)
   try { d.run(`DELETE FROM messages_fts`) } catch { /* FTS5 best-effort */ }
   persistDBImmediate()
 }
@@ -1770,6 +1910,70 @@ export function searchContacts(query, accountEmail) {
   return rows.map(r => _hydrateContact(r))
 }
 
+export function getContactInsights(email, accountEmail) {
+  const target = normalizeContactEmail(email)
+  if (!target) return { conversations: [], attachments: [], events: [], counts: { conversations: 0, attachments: 0, events: 0 } }
+  const d = getDB()
+  const like = `%${target}%`
+  const messageStmt = d.prepare(`
+    SELECT uid, folder, subject, from_name, from_email, to_addresses, cc_addresses,
+           bcc_addresses, date, flags, snippet, has_attachments, thread_id
+    FROM messages
+    WHERE LOWER(COALESCE(from_email, '')) LIKE ?
+       OR LOWER(COALESCE(to_addresses, '')) LIKE ?
+       OR LOWER(COALESCE(cc_addresses, '')) LIKE ?
+       OR LOWER(COALESCE(bcc_addresses, '')) LIKE ?
+    ORDER BY date DESC
+    LIMIT 100
+  `)
+  messageStmt.bind([like, like, like, like])
+  const matchingMessages = allRows(messageStmt)
+    .filter(message => messageMatchesContact(message, target))
+    .map(message => ({ ...message, flags: JSON.parse(message.flags || '[]') }))
+  const conversations = matchingMessages.slice(0, 12)
+  const messageKeys = new Set(matchingMessages.map(message => `${message.folder}\u0000${message.uid}`))
+
+  const attachmentStmt = d.prepare(`
+    SELECT a.*, m.subject, m.date
+    FROM attachments a
+    JOIN messages m ON m.uid = a.uid AND m.folder = a.folder
+    WHERE LOWER(COALESCE(m.from_email, '')) LIKE ?
+       OR LOWER(COALESCE(m.to_addresses, '')) LIKE ?
+       OR LOWER(COALESCE(m.cc_addresses, '')) LIKE ?
+       OR LOWER(COALESCE(m.bcc_addresses, '')) LIKE ?
+    ORDER BY m.date DESC
+    LIMIT 100
+  `)
+  attachmentStmt.bind([like, like, like, like])
+  const allAttachments = allRows(attachmentStmt)
+    .filter(attachment => messageKeys.has(`${attachment.folder}\u0000${attachment.uid}`))
+  const attachments = allAttachments.slice(0, 12)
+
+  const eventStmt = d.prepare(`
+    SELECT * FROM calendar_events
+    WHERE (? IS NULL OR account_email = ? OR account_email IS NULL)
+      AND (LOWER(COALESCE(organizer, '')) LIKE ? OR LOWER(COALESCE(attendees, '')) LIKE ?)
+    ORDER BY start_ts DESC
+    LIMIT 100
+  `)
+  eventStmt.bind([accountEmail || null, accountEmail || null, like, like])
+  const allEvents = allRows(eventStmt)
+    .map(row => _hydrateEvent(row))
+    .filter(event => eventMatchesContact(event, target))
+  const events = allEvents.slice(0, 12)
+
+  return {
+    conversations,
+    attachments,
+    events,
+    counts: {
+      conversations: matchingMessages.length,
+      attachments: allAttachments.length,
+      events: allEvents.length
+    }
+  }
+}
+
 export function deleteContacts(accountEmail) {
   const d = getDB()
   d.run(`DELETE FROM contacts WHERE account_email = ? AND source = 'carddav'`, [accountEmail])
@@ -1893,6 +2097,14 @@ export function upsertEvent(event) {
   scheduleSave()
 }
 
+function _hydrateEvent(r) {
+  let organizer = r.organizer
+  if (organizer?.startsWith('{')) {
+    try { organizer = JSON.parse(organizer) } catch { /* keep stored value */ }
+  }
+  return { ...r, organizer, attendees: JSON.parse(r.attendees || '[]') }
+}
+
 export function getEvents(accountEmail, fromTs, toTs) {
   const d = getDB()
   const from = fromTs || Date.now() - 86400000 * 7
@@ -1903,13 +2115,7 @@ export function getEvents(accountEmail, fromTs, toTs) {
   if (accountEmail) stmt.bind([accountEmail, from, to])
   else stmt.bind([from, to])
   const rows = allRows(stmt)
-  return rows.map(r => {
-    let organizer = r.organizer
-    if (organizer?.startsWith('{')) {
-      try { organizer = JSON.parse(organizer) } catch { /* keep stored value */ }
-    }
-    return { ...r, organizer, attendees: JSON.parse(r.attendees || '[]') }
-  })
+  return rows.map(r => _hydrateEvent(r))
 }
 
 export function deleteEvents(accountEmail, calendarId) {

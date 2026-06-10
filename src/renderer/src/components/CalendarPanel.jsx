@@ -165,6 +165,25 @@ export default function CalendarPanel() {
   const [editing, setEditing] = useState(null)
 
   useEffect(() => {
+    if (state.calendar.draft) {
+      setEditing(state.calendar.draft)
+      dispatch({ type: 'CLEAR_CALENDAR_DRAFT' })
+    }
+  }, [state.calendar.draft, dispatch])
+
+  useEffect(() => {
+    if (!state.calendar.selected) return
+    const selected = state.calendar.events.find(event =>
+      event.id === state.calendar.selected.id ||
+      (event.href && event.href === state.calendar.selected.href)
+    ) || state.calendar.selected
+    setSelectedEvent(selected)
+    setViewMonth(new Date(selected.start_ts || Date.now()))
+    setSelectedDay(new Date(selected.start_ts || Date.now()).getDate())
+    dispatch({ type: 'SELECT_CALENDAR_EVENT', payload: null })
+  }, [state.calendar.selected, state.calendar.events, dispatch])
+
+  useEffect(() => {
     if (state.auth.email) {
       window.api.calendar.sources(state.auth.email).then(res => {
         if (res.ok) setSources(res.sources)

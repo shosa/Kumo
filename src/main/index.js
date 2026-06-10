@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, Tray, Menu, Notification, nativeImage, shell, dialog, protocol } from 'electron'
 import { join, dirname, resolve, sep } from 'path'
 import {
-  initDB, closeDB, searchMessages, getSettings, saveSetting,
+  initDB, closeDB, searchMessages, globalSearch, getSettings, saveSetting,
   getFolders, getMessages, getMessageCount,
   clearBodyCache, clearFolderCache, clearMessages, getDbPath, resetAllData,
   clearReclaimableCache, rebuildMailCache, getStorageCounts,
@@ -15,7 +15,8 @@ import {
   upsertCalendarSource, getCalendarSources, setCalendarSourceEnabled, deleteCalendarSourcesNotIn,
   getAttachmentSnapshots, getMessageSnapshots, moveMessagesOptimistic, removeMessages,
   persistDBImmediate, recalcFolderUnread, getSyncQueueCount,
-  getSenderLogoCache, setSenderLogoCache
+  getSenderLogoCache, setSenderLogoCache,
+  addActivity, getActivities, clearActivities, getContactInsights
 } from './store/db.js'
 import { saveCredentials, getCredentials, deleteCredentials, listStoredEmails } from './auth/index.js'
 import { ImapClient } from './imap/client.js'
@@ -511,6 +512,15 @@ function _attachClientEvents(email, client) {
     updateTrayMenu()
   })
   client.on('sync-complete', ({ folder, newCount, removedCount }) => {
+    addActivity({
+      account_email: email,
+      category: 'sync',
+      status: 'success',
+      title: 'Folder synchronized',
+      detail: `${folder}: ${newCount || 0} new, ${removedCount || 0} removed`,
+      operation: 'folderSync',
+      metadata: { folder, newCount, removedCount }
+    })
     mainWindow?.webContents.send('imap:sync-complete', { folder, newCount, removedCount, account: email })
   })
   client.on('flags-updated', ({ folder, uid, flags }) => {
@@ -979,8 +989,25 @@ ipcMain.handle('imap:bulk-move', async (_e, folder, uids, destination, email) =>
 ipcMain.handle('smtp:send', async (_e, email, password, mailOptions) => {
   try {
     await sendEmail(email, password, mailOptions)
+    addActivity({
+      account_email: email,
+      category: 'send',
+      status: 'success',
+      title: 'Message sent',
+      detail: mailOptions?.subject || 'No subject',
+      operation: 'sendEmail'
+    })
     return { ok: true }
   } catch (err) {
+    addActivity({
+      account_email: email,
+      category: 'send',
+      status: 'error',
+      title: 'Message send failed',
+      detail: err.message,
+      operation: 'sendEmail',
+      retryable: true
+    })
     return { ok: false, error: err.message }
   }
 })
@@ -1150,6 +1177,45 @@ ipcMain.handle('store:clear-logs', async () => {
     const bytesFreed = await clearDirectoryContents(join(app.getPath('userData'), 'logs'))
     initLogger(join(app.getPath('userData'), 'logs', 'kumo.log'))
     return { ok: true, bytesFreed, usage: await getLocalStorageUsage() }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('search:global', async (_e, query, email, limit) => {
+  try {
+    return { ok: true, results: globalSearch(query, email, limit) }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('activity:list', async (_e, email, category, limit) => {
+  try {
+    return { ok: true, activities: getActivities(email, category, limit) }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('activity:clear', async (_e, email) => {
+  try {
+    clearActivities(email)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('activity:metrics', async () => {
+  try {
+    return {
+      ok: true,
+      metrics: {
+        pendingOperations: getSyncQueueCount(),
+        storage: getStorageCounts()
+      }
+    }
   } catch (err) {
     return { ok: false, error: err.message }
   }
@@ -1417,9 +1483,26 @@ ipcMain.handle('contacts:sync', async (_e, email, password) => {
     const deletedIds = getContactsToDelete(localContacts, contacts, failedHrefs)
     deleteContactsByIds(email, deletedIds)
     logContact('[contacts:sync] Completed', { saved, failed, deleted: deletedIds.length })
+    addActivity({
+      account_email: email,
+      category: 'contacts',
+      status: failed ? 'warning' : 'success',
+      title: 'Contacts synchronized',
+      detail: `${saved} saved, ${deletedIds.length} removed${failed ? `, ${failed} failed` : ''}`,
+      operation: 'contactsSync'
+    })
     return { ok: true, count: saved }
   } catch (err) {
     logErr('[contacts:sync] Failed', { error: err.message })
+    addActivity({
+      account_email: email,
+      category: 'contacts',
+      status: 'error',
+      title: 'Contacts sync failed',
+      detail: err.message,
+      operation: 'contactsSync',
+      retryable: true
+    })
     return { ok: false, error: err.message }
   }
 })
@@ -1439,6 +1522,14 @@ ipcMain.handle('contacts:search', async (_e, query, email) => {
   try {
     const contacts = searchContacts(query, email)
     return { ok: true, contacts }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('contacts:insights', async (_e, contactEmail, accountEmail) => {
+  try {
+    return { ok: true, insights: getContactInsights(contactEmail, accountEmail) }
   } catch (err) {
     return { ok: false, error: err.message }
   }
@@ -1540,8 +1631,25 @@ ipcMain.handle('calendar:sync', async (_e, email, password) => {
       upsertEvent({ ...item, account_email: email })
       saved++
     }
+    addActivity({
+      account_email: email,
+      category: 'calendar',
+      status: 'success',
+      title: 'Calendar synchronized',
+      detail: `${saved} items updated`,
+      operation: 'calendarSync'
+    })
     return { ok: true, count: saved }
   } catch (err) {
+    addActivity({
+      account_email: email,
+      category: 'calendar',
+      status: 'error',
+      title: 'Calendar sync failed',
+      detail: err.message,
+      operation: 'calendarSync',
+      retryable: true
+    })
     return { ok: false, error: err.message }
   }
 })
@@ -1823,8 +1931,26 @@ ipcMain.handle('imap:download-attachment', async (_e, folder, uid, partId, filen
       const meta = metas.find(m => m.part_id === partId && m.filename === filename)
       if (meta) markAttachmentDownloaded(meta.id, filePath)
     }
+    addActivity({
+      account_email: email,
+      category: 'attachment',
+      status: 'success',
+      title: 'Attachment downloaded',
+      detail: filename,
+      operation: 'downloadAttachment',
+      metadata: { folder, uid, filename }
+    })
     return { ok: true, filePath }
   } catch (err) {
+    addActivity({
+      account_email: email,
+      category: 'attachment',
+      status: 'error',
+      title: 'Attachment download failed',
+      detail: `${filename}: ${err.message}`,
+      operation: 'downloadAttachment',
+      retryable: true
+    })
     return { ok: false, error: err.message }
   }
 })

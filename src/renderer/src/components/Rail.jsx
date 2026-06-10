@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
 import {
-  IconMail, IconContacts, IconCalendar, IconSearch, IconSettings
+  IconMail, IconContacts, IconCalendar, IconSearch, IconSettings, IconClock
 } from './Icons'
 import logoUrl from '../assets/icon.png'
 
@@ -38,20 +38,20 @@ function avatarColor(email) {
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length]
 }
 
-function RailNavButton({ id, Icon, label, badge, active, onSelect }) {
+function RailNavButton({ id, Icon, label, badge, active, onSelect, size = 21 }) {
   return (
     <button
       className={`rail__btn${active ? ' active' : ''}`}
       title={label}
       onClick={() => onSelect(id)}
     >
-      <Icon size={21} />
+      <Icon size={size} />
       {badge ? <span className="rail__badge">{badge > 99 ? '99+' : badge}</span> : null}
     </button>
   )
 }
 
-export default function Rail({ onSearch }) {
+export default function Rail() {
   const state = useAppState()
   const dispatch = useAppDispatch()
   const t = useTranslation()
@@ -71,10 +71,11 @@ export default function Rail({ onSearch }) {
       <RailNavButton id="mail" Icon={IconMail} label={t('nav.mail')} badge={unread || null} active={view === 'mail'} onSelect={setView} />
       <RailNavButton id="contacts" Icon={IconContacts} label={t('nav.contacts')} active={view === 'contacts'} onSelect={setView} />
       <RailNavButton id="calendar" Icon={IconCalendar} label={t('nav.calendar')} active={view === 'calendar'} onSelect={setView} />
-      <button className="rail__btn" title={t('sidebar.searchShortcut')} onClick={onSearch}>
+      <button className={`rail__btn${view === 'search' ? ' active' : ''}`} title={t('search.globalTitle')} onClick={() => setView('search')}>
         <IconSearch size={20} />
       </button>
       <div className="rail__sep" />
+      <RailNavButton id="activity" Icon={IconClock} label={t('nav.activity')} active={view === 'activity'} onSelect={setView} size={19} />
       <button
         className={`rail__btn${view === 'settings' ? ' active' : ''}`}
         title={t('sidebar.settings')}

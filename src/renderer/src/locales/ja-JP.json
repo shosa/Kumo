@@ -378,5 +378,13 @@
   "search.hasAttachments": "Has attachments",
   "search.apply": "Search",
   "attachment.previous": "Previous attachment",
-  "attachment.next": "Next attachment"
+  "attachment.next": "Next attachment",
+  "nav.activity": "Activity", "search.all": "All", "search.attachments": "Attachments",
+  "search.globalTitle": "Global search", "search.globalPlaceholder": "Search mail, attachments, contacts, and calendar", "search.globalHint": "Type at least two characters to search all local data.", "search.globalFooter": "Instant local results, grouped by type.",
+  "activity.title": "Activity center", "activity.subtitle": "Syncs, sends, downloads, and background work.",
+  "activity.all": "All activity", "activity.send": "Sending", "activity.clear": "Clear",
+  "activity.queued": "Queued operations", "activity.messages": "Local messages", "activity.empty": "Everything is up to date.",
+  "appointment.detected": "Possible appointment detected", "appointment.add": "Add to calendar", "appointment.ignore": "Ignore",
+  "contacts.conversations": "Conversations", "contacts.sharedAttachments": "Attachments", "contacts.eventsTogether": "Events",
+  "contacts.recentConversations": "Recent conversations", "contacts.recentAttachments": "Shared attachments", "contacts.relatedEvents": "Related events"
 }

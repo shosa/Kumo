@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import {
   IconReply, IconReplyAll, IconForward, IconStar, IconMarkRead,
   IconTrash, IconNoSymbol, IconClose, IconAttach, IconDownload
@@ -140,10 +141,11 @@ function EmailBodyContextMenu({ isVisible, position, selectedText, selectedLink,
     y: Math.min(position.y, window.innerHeight - menuHeight - 10)
   }
 
-  return (
+  return createPortal(
     <div
       ref={menuRef}
       className="email-context-menu"
+      onMouseLeave={onClose}
       style={{
         position: 'fixed',
         left: Math.max(10, adjustedPosition.x),
@@ -169,7 +171,8 @@ function EmailBodyContextMenu({ isVisible, position, selectedText, selectedLink,
           </button>
         </>
       )}
-    </div>
+    </div>,
+    document.querySelector('.app-root') || document.body
   )
 }
 

@@ -65,7 +65,9 @@ const initialState = {
   calendar: {
     events: [],
     loading: false,
-    syncing: false
+    syncing: false,
+    draft: null,
+    selected: null
   },
   notifications: [],
   loading: { active: false, label: '' },
@@ -329,6 +331,12 @@ function reducer(state, action) {
       return { ...state, calendar: { ...state.calendar, loading: action.payload } }
     case 'SET_CALENDAR_SYNCING':
       return { ...state, calendar: { ...state.calendar, syncing: action.payload } }
+    case 'SET_CALENDAR_DRAFT':
+      return { ...state, calendar: { ...state.calendar, draft: action.payload } }
+    case 'CLEAR_CALENDAR_DRAFT':
+      return { ...state, calendar: { ...state.calendar, draft: null } }
+    case 'SELECT_CALENDAR_EVENT':
+      return { ...state, calendar: { ...state.calendar, selected: action.payload } }
 
     default:
       return state

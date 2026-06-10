@@ -3,7 +3,7 @@ import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
 import {
   IconSearch, IconContacts, IconMail, IconPhone, IconBuilding, IconPin,
-  IconSync, IconCompose, IconEdit, IconTrash, IconClose
+  IconSync, IconCompose, IconEdit, IconTrash, IconClose, IconAttach, IconCalendar
 } from './Icons'
 
 const AVATAR_COLORS = ['#0071e3','#5e5ebc','#bf5af2','#ff6b35','#30a46c','#e0820b','#e5484d','#0e9bd6']
@@ -104,6 +104,8 @@ export default function ContactsPanel() {
   const [searchQuery, setSearchQuery] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [editing, setEditing] = useState(null)
+  const [insights, setInsights] = useState(null)
+  const [insightsLoading, setInsightsLoading] = useState(false)
 
   async function handleSync() {
     if (syncing) return
@@ -161,6 +163,22 @@ export default function ContactsPanel() {
 
   const selected = state.contacts.selected
 
+  useEffect(() => {
+    const contactEmail = selected?.email || selected?.emails?.[0]
+    if (!contactEmail) {
+      setInsights(null)
+      return
+    }
+    let active = true
+    setInsightsLoading(true)
+    window.api.contacts.insights(contactEmail, state.auth.email).then(result => {
+      if (active) setInsights(result.ok ? result.insights : null)
+    }).finally(() => {
+      if (active) setInsightsLoading(false)
+    })
+    return () => { active = false }
+  }, [selected?.id, selected?.email, state.auth.email])
+
   function selectContact(c) {
     dispatch({ type: 'SELECT_CONTACT', payload: c })
   }
@@ -168,6 +186,17 @@ export default function ContactsPanel() {
   function handleComposeToContact(contact) {
     const email = contact.email || (contact.emails && contact.emails[0]) || ''
     window.api.window.openCompose({ mode: 'new', to: email })
+  }
+
+  function openMessage(message) {
+    dispatch({ type: 'SET_VIEW', payload: 'mail' })
+    dispatch({ type: 'SELECT_FOLDER', payload: message.folder })
+    dispatch({ type: 'SELECT_MESSAGE', payload: message })
+  }
+
+  function openEvent(event) {
+    dispatch({ type: 'SELECT_CALENDAR_EVENT', payload: event })
+    dispatch({ type: 'SET_VIEW', payload: 'calendar' })
   }
 
   function handleSaved(contact) {
@@ -359,6 +388,49 @@ export default function ContactsPanel() {
                 </div>
               )
             })}
+          </div>
+          <div className="contact-insights">
+            <div className="contact-insights__stats">
+              <div><strong>{insights?.counts?.conversations || 0}</strong><span>{t('contacts.conversations')}</span></div>
+              <div><strong>{insights?.counts?.attachments || 0}</strong><span>{t('contacts.sharedAttachments')}</span></div>
+              <div><strong>{insights?.counts?.events || 0}</strong><span>{t('contacts.eventsTogether')}</span></div>
+            </div>
+            {insightsLoading ? <div className="spinner" /> : (
+              <>
+                {insights?.conversations?.length > 0 && (
+                  <section className="contact-insights__section">
+                    <h3><IconMail size={16} /> {t('contacts.recentConversations')}</h3>
+                    {insights.conversations.map(message => (
+                      <button key={`${message.folder}-${message.uid}`} onClick={() => openMessage(message)}>
+                        <span><strong>{message.subject || t('reading.noSubject')}</strong><small>{message.snippet || message.from_email}</small></span>
+                        <time>{new Date(message.date).toLocaleDateString(state.settings.language, { day: '2-digit', month: 'short' })}</time>
+                      </button>
+                    ))}
+                  </section>
+                )}
+                {insights?.attachments?.length > 0 && (
+                  <section className="contact-insights__section">
+                    <h3><IconAttach size={16} /> {t('contacts.recentAttachments')}</h3>
+                    {insights.attachments.map(attachment => (
+                      <button key={attachment.id} onClick={() => openMessage(attachment)}>
+                        <span><strong>{attachment.filename}</strong><small>{attachment.subject || t('reading.noSubject')}</small></span>
+                      </button>
+                    ))}
+                  </section>
+                )}
+                {insights?.events?.length > 0 && (
+                  <section className="contact-insights__section">
+                    <h3><IconCalendar size={16} /> {t('contacts.relatedEvents')}</h3>
+                    {insights.events.map(event => (
+                      <button key={event.id} onClick={() => openEvent(event)}>
+                        <span><strong>{event.title}</strong><small>{event.location || event.calendar_id}</small></span>
+                        <time>{new Date(event.start_ts).toLocaleDateString(state.settings.language, { day: '2-digit', month: 'short' })}</time>
+                      </button>
+                    ))}
+                  </section>
+                )}
+              </>
+            )}
           </div>
         </div>
       ) : (

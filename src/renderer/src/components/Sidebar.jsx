@@ -53,7 +53,7 @@ function AvatarMenu({ anchorRect, email, onClose, onSettings, onSignOut, t }) {
   }, [onClose])
 
   return (
-    <div ref={menuRef} className="context-menu" style={{ left: pos.x, top: pos.y }} role="menu">
+    <div ref={menuRef} className="context-menu" style={{ left: pos.x, top: pos.y }} role="menu" onMouseLeave={onClose}>
       <div className="context-menu__header" style={{ userSelect: 'text' }}>{email}</div>
       <div className="context-menu__separator" />
       <div className="context-menu__item" onClick={onSettings} role="menuitem">
@@ -104,7 +104,7 @@ function FolderMenu({ x, y, folder, onClose, onAction, isGlobalSyncing }) {
   function act(type) { onAction(type); onClose() }
 
   return (
-    <div ref={menuRef} className="context-menu" style={{ left: pos.x, top: pos.y }} role="menu">
+    <div ref={menuRef} className="context-menu" style={{ left: pos.x, top: pos.y }} role="menu" onMouseLeave={onClose}>
       <div className="context-menu__header">{folderName}</div>
       <div className="context-menu__separator" />
       <div className="context-menu__item" onClick={() => act('markAllRead')} role="menuitem">

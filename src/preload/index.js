@@ -110,6 +110,20 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('store:read-local-file', filePath)
   },
 
+  search: {
+    global: (query, email, limit) =>
+      ipcRenderer.invoke('search:global', query, email, limit)
+  },
+
+  activity: {
+    list: (email, category, limit) =>
+      ipcRenderer.invoke('activity:list', email, category, limit),
+    clear: (email) =>
+      ipcRenderer.invoke('activity:clear', email),
+    metrics: () =>
+      ipcRenderer.invoke('activity:metrics')
+  },
+
   // ── Drafts ──────────────────────────────────────────────────────────────────
   drafts: {
     list:   (accountEmail) => ipcRenderer.invoke('drafts:list', accountEmail),
@@ -157,6 +171,7 @@ contextBridge.exposeInMainWorld('api', {
     sync:    (email, password) => ipcRenderer.invoke('contacts:sync', email, password),
     list:    (email)           => ipcRenderer.invoke('contacts:list', email),
     search:  (query, email)    => ipcRenderer.invoke('contacts:search', query, email),
+    insights: (contactEmail, accountEmail) => ipcRenderer.invoke('contacts:insights', contactEmail, accountEmail),
     save:    (contact, email)  => ipcRenderer.invoke('contacts:save', contact, email),
     delete:  (contact, email)  => ipcRenderer.invoke('contacts:delete', contact, email),
     clear:   (email)           => ipcRenderer.invoke('contacts:clear', email),

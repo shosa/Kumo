@@ -1,15 +1,17 @@
 import React, { useEffect, useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useAppState, useAppDispatch } from '../context/AppContext'
 import { useTranslation } from '../i18n/index'
 import { animateMessageRemoval } from '../motion'
 import {
   IconReply, IconReplyAll, IconForward, IconStar, IconMarkRead,
   IconTrash, IconNoSymbol, IconEnvelope, IconArchive,
-  IconFileImage, IconFileDoc, IconDownload
+  IconFileImage, IconFileDoc, IconDownload, IconCalendar, IconClock
 } from './Icons'
 import SenderAvatar from './SenderAvatar'
 import AttachmentPreviewPanel from './AttachmentPreviewPanel'
 import { getPreviewableAttachmentIndexes, getAdjacentPreviewIndex } from '../attachmentNavigation'
+import { detectAppointment } from '../appointmentDetection'
 
 const ADDR_COLORS = [
   '#0071e3','#5e5ebc','#bf5af2','#ff6b35',
@@ -58,10 +60,11 @@ function EmailBodyContextMenu({ isVisible, position, selectedText, selectedLink,
     y: Math.min(position.y, window.innerHeight - menuHeight - 10)
   }
 
-  return (
+  return createPortal(
     <div
       ref={menuRef}
       className="email-context-menu"
+      onMouseLeave={onClose}
       style={{
         position: 'fixed',
         left: Math.max(10, adjustedPosition.x),
@@ -87,7 +90,8 @@ function EmailBodyContextMenu({ isVisible, position, selectedText, selectedLink,
           </button>
         </>
       )}
-    </div>
+    </div>,
+    document.querySelector('.app-root') || document.body
   )
 }
 
@@ -215,6 +219,7 @@ export default function ReadingPane() {
   const [loadingIdx, setLoadingIdx] = useState(null)
   const [respondingInvite, setRespondingInvite] = useState(false)
   const [inviteResponse, setInviteResponse] = useState('')
+  const [appointmentDismissed, setAppointmentDismissed] = useState(false)
   const htmlIframeRef = useRef(null)
 
   // Context menu state
@@ -234,6 +239,7 @@ export default function ReadingPane() {
     setAttachmentMeta([])
     setFilePreview(null)
     setInviteResponse('')
+    setAppointmentDismissed(false)
     setBodyLoading(true)
     setImagesLoadedByUser(false)
     setImagesBlocked(state.settings.blockRemoteImages)
@@ -465,6 +471,18 @@ export default function ReadingPane() {
     }
   }
 
+  function handleAddDetectedAppointment(appointment) {
+    dispatch({
+      type: 'SET_CALENDAR_DRAFT',
+      payload: {
+        ...appointment,
+        type: 'event',
+        description: `${msg.subject || ''}\n${msg.from_email || ''}\n\n${body?.text || msg.snippet || ''}`.trim()
+      }
+    })
+    dispatch({ type: 'SET_VIEW', payload: 'calendar' })
+  }
+
   async function handleInviteResponse(invite, response) {
     if (respondingInvite) return
     setRespondingInvite(true)
@@ -490,6 +508,10 @@ export default function ReadingPane() {
   const isRead = msg.flags?.includes('\\Seen')
   const isStarred = msg.flags?.includes('\\Flagged')
   const textContent = body?.text || ''
+  const appointmentSource = textContent || (body?.html || '').replace(/<[^>]+>/g, ' ')
+  const detectedAppointment = body?.calendarInvites?.length
+    ? null
+    : detectAppointment(appointmentSource, { subject: msg.subject || '' })
 
   // Sender info
   const senderName = msg.from_name || ''
@@ -666,6 +688,18 @@ export default function ReadingPane() {
           </div>
         </div>
       ))}
+
+      {detectedAppointment && !appointmentDismissed && (
+        <div className="appointment-suggestion">
+          <span className="appointment-suggestion__icon"><IconCalendar size={19} /></span>
+          <div className="appointment-suggestion__content">
+            <strong>{t('appointment.detected')}</strong>
+            <span><IconClock size={14} /> {formatFullDate(detectedAppointment.start_ts)}{detectedAppointment.location ? ` · ${detectedAppointment.location}` : ''}</span>
+          </div>
+          <button className="btn btn--primary" onClick={() => handleAddDetectedAppointment(detectedAppointment)}>{t('appointment.add')}</button>
+          <button className="btn btn--ghost" onClick={() => setAppointmentDismissed(true)}>{t('appointment.ignore')}</button>
+        </div>
+      )}
 
       <div className="reader__body scroll">
         {bodyLoading ? (

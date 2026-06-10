@@ -36,6 +36,7 @@ export default function ContextMenu({ x, y, messages = [], folders = [], onClose
   const moveTriggerRef = useRef(null)
   const moveMenuRef = useRef(null)
   const closeMoveTimer = useRef(null)
+  const closeMenuTimer = useRef(null)
   const [pos, setPos] = useState({ x, y })
   const [showMove, setShowMove] = useState(false)
   const [movePos, setMovePos] = useState(null)
@@ -67,6 +68,7 @@ export default function ContextMenu({ x, y, messages = [], folders = [], onClose
       document.removeEventListener('mousedown', onDown)
       document.removeEventListener('keydown', onKey)
       clearTimeout(closeMoveTimer.current)
+      clearTimeout(closeMenuTimer.current)
     }
   }, [onClose])
 
@@ -95,6 +97,7 @@ export default function ContextMenu({ x, y, messages = [], folders = [], onClose
 
   function openMoveMenu() {
     clearTimeout(closeMoveTimer.current)
+    clearTimeout(closeMenuTimer.current)
     setShowMove(true)
   }
 
@@ -103,12 +106,23 @@ export default function ContextMenu({ x, y, messages = [], folders = [], onClose
     closeMoveTimer.current = setTimeout(() => setShowMove(false), 120)
   }
 
+  function cancelMenuClose() {
+    clearTimeout(closeMenuTimer.current)
+  }
+
+  function scheduleMenuClose() {
+    clearTimeout(closeMenuTimer.current)
+    closeMenuTimer.current = setTimeout(onClose, 140)
+  }
+
   return createPortal(
     <div
       ref={menuRef}
       className="context-menu"
       style={{ left: pos.x, top: pos.y }}
       role="menu"
+      onMouseEnter={cancelMenuClose}
+      onMouseLeave={scheduleMenuClose}
     >
       {isMulti && (
         <>
@@ -179,8 +193,8 @@ export default function ContextMenu({ x, y, messages = [], folders = [], onClose
             visibility: movePos ? 'visible' : 'hidden'
           }}
           role="menu"
-          onMouseEnter={openMoveMenu}
-          onMouseLeave={scheduleMoveMenuClose}
+          onMouseEnter={() => { cancelMenuClose(); openMoveMenu() }}
+          onMouseLeave={() => { scheduleMoveMenuClose(); scheduleMenuClose() }}
         >
           {moveFolders.map(f => {
             const FolderIcon = getFolderIcon(f)

@@ -517,6 +517,7 @@ export default function ComposeViewerApp({ composeData }) {
       {contextMenu && (
         <div
           className="email-context-menu"
+          onMouseLeave={() => setContextMenu(null)}
           style={{
             position: 'fixed',
             left: contextMenu.x,

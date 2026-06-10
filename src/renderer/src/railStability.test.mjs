@@ -20,3 +20,8 @@ test('active rail indicator is aligned to the rail edge and does not restart an 
   assert.match(css, /\.rail__btn\.active::before\s*\{[^}]*left:\s*-9px/s)
   assert.doesNotMatch(css, /\.rail__btn\.active::before\s*\{[^}]*animation:/s)
 })
+
+test('activity icon uses a smaller optical size beside settings', () => {
+  assert.match(rail, /RailNavButton id="activity"[^>]*size=\{19\}/)
+  assert.match(rail, /function RailNavButton\(\{[^}]*size = 21/)
+})

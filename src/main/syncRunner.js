@@ -12,6 +12,7 @@ import { sendEmail } from './smtp/index.js'
 import { getCredentials } from './auth/index.js'
 import {
   getDraft,
+  addActivity,
   markDraftSynced,
   reconcileOptimisticMove,
   removeOptimisticMoveCopies
@@ -95,6 +96,14 @@ async function processOne(op, imapClients, coordinator) {
     }
     if (op.operation === 'sendEmail' && outboxId) {
       markOutboxEmailSent(outboxId)
+      addActivity({
+        account_email: op.account_email,
+        category: 'send',
+        status: 'success',
+        title: 'Message sent',
+        detail: op.data?.mailOptions?.subject || 'No subject',
+        operation: 'sendEmail'
+      })
     }
     markOptimisticOperationSynced(op)
     markSyncOperationCompleted(op.id)
@@ -118,6 +127,15 @@ async function processOne(op, imapClients, coordinator) {
     if (terminal) {
       if (op.operation === 'sendEmail' && outboxId) {
         markOutboxEmailFailed(outboxId, err.message)
+        addActivity({
+          account_email: op.account_email,
+          category: 'send',
+          status: 'error',
+          title: 'Message send failed',
+          detail: err.message,
+          operation: 'sendEmail',
+          retryable: true
+        })
       }
       rollbackQueuedOperation(op, err.message)
     }

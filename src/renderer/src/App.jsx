@@ -12,6 +12,8 @@ import Settings from './components/Settings'
 import TitleBar from './components/TitleBar'
 import UpdateBanner from './components/UpdateBanner'
 import CommandPalette from './components/CommandPalette'
+import ActivityCenter from './components/ActivityCenter'
+import GlobalSearchPanel from './components/GlobalSearchPanel'
 import UndoSendToast from './components/UndoSendToast'
 import { useAppearance } from './appearance'
 import { normalizeConnectionStatus } from './connectionStatus'
@@ -256,7 +258,7 @@ if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
       <UpdateBanner />
       <UndoSendToast />
       <div className="app-layout">
-        <Rail onSearch={() => setCmdkOpen(true)} />
+        <Rail />
         {view === 'mail' && (
           <>
             <div className="app-layout__sidebar">
@@ -273,6 +275,8 @@ if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         )}
         {view === 'contacts' && <div className="app-layout__full"><ContactsPanel /></div>}
         {view === 'calendar' && <div className="app-layout__full"><CalendarPanel /></div>}
+        {view === 'activity' && <div className="app-layout__full"><ActivityCenter /></div>}
+        {view === 'search' && <div className="app-layout__full"><GlobalSearchPanel /></div>}
         {view === 'settings' && <div className="app-layout__full"><Settings /></div>}
       </div>
       {state.compose.isOpen && <ComposeWindow />}
