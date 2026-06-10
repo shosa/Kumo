@@ -1,6 +1,6 @@
 {
   "name": "Kumo",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "description": "iCloud Mail desktop client for Windows",
   "main": "out/main/index.js",
   "scripts": {
