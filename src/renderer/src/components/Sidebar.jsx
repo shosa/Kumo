@@ -326,11 +326,11 @@ export default function Sidebar() {
           onClick={toggleSmartFolders}
           aria-expanded={smartExpanded}
         >
+          <span>{t('smart.title')}</span>
           <IconChevronRight
             size={12}
             className={`sidebar__group-chevron${smartExpanded ? ' expanded' : ''}`}
           />
-          <span>{t('smart.title')}</span>
         </button>
         <div className={`sidebar__collapsible${smartExpanded ? ' expanded' : ''}`}>
           <div className="sidebar__collapsible-inner">

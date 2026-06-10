@@ -58,6 +58,16 @@ function buildSafeHTML(html, blockImages) {
 
 function buildEmailIframeDoc(renderHtml) {
   const bridgeScript = `(${function () {
+    document.addEventListener('click', function (event) {
+      var link = event.target && event.target.closest ? event.target.closest('a') : null
+      if (!link || !/^https?:\/\//i.test(link.href)) return
+      event.preventDefault()
+      parent.postMessage({
+        type: 'kumo-email-open-link',
+        url: link.href
+      }, '*')
+    })
+
     document.addEventListener('contextmenu', function (event) {
       event.preventDefault()
       var link = event.target && event.target.closest ? event.target.closest('a') : null
@@ -216,6 +226,11 @@ export default function MessageViewerApp({ message }) {
 
   useEffect(() => {
     function handleIframeMessage(event) {
+      if (event.source !== htmlIframeRef.current?.contentWindow) return
+      if (event.data?.type === 'kumo-email-open-link') {
+        window.api.shell.openExternal(event.data.url)
+        return
+      }
       if (event.data?.type !== 'kumo-email-context-menu') return
       const rect = htmlIframeRef.current?.getBoundingClientRect()
       setContextMenu({
