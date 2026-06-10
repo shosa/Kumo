@@ -2,6 +2,7 @@ import { request } from 'https'
 import { URL } from 'url'
 import { randomUUID } from 'crypto'
 import { logCal, logWarn } from '../logger.js'
+import { assertSafeDavUrl } from '../dav/http.js'
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
@@ -35,12 +36,12 @@ function davRequest(url, method, auth, body, headers = {}) {
 }
 
 async function followRedirects(url, method, auth, body, headers, maxRedirects = 5) {
-  let current = url
+  let current = assertSafeDavUrl(url).href
   for (let i = 0; i < maxRedirects; i++) {
     const res = await davRequest(current, method, auth, body, headers)
     if (res.status >= 300 && res.status < 400 && res.headers.location) {
       const loc = res.headers.location
-      current = loc.startsWith('http') ? loc : new URL(loc, current).href
+      current = assertSafeDavUrl(new URL(loc, current)).href
     } else {
       return { ...res, finalUrl: current }
     }
@@ -54,12 +55,29 @@ function unfold(raw) {
   return raw.replace(/\r?\n[ \t]/g, '')
 }
 
+function decodeXmlEntities(value) {
+  return String(value || '')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(parseInt(code, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)))
+    .replace(/&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+}
+
 function escapeICal(value) {
   return String(value || '')
     .replace(/\\/g, '\\\\')
     .replace(/\n/g, '\\n')
     .replace(/,/g, '\\,')
     .replace(/;/g, '\\;')
+}
+
+function unescapeICal(value) {
+  return String(value || '')
+    .replace(/\\n/gi, '\n')
+    .replace(/\\([\\,;])/g, '$1')
 }
 
 function formatICalDate(timestamp, allDay = false) {
@@ -74,6 +92,12 @@ function formatICalDate(timestamp, allDay = false) {
   return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')
 }
 
+function addLocalDays(timestamp, days) {
+  const date = new Date(Number(timestamp) || Date.now())
+  date.setDate(date.getDate() + days)
+  return date.getTime()
+}
+
 function parseMailAddress(rawProp, value) {
   const cn = rawProp.match(/(?:^|;)CN="?([^";]+)"?/i)?.[1] || ''
   const partstat = rawProp.match(/(?:^|;)PARTSTAT=([^;:]+)/i)?.[1]?.toUpperCase() || null
@@ -81,27 +105,27 @@ function parseMailAddress(rawProp, value) {
   return { email, name: cn, partstat }
 }
 
-export function buildCalendarObject(item) {
-  const uid = item.id || randomUUID()
+function buildCalendarComponent(item) {
+  const uid = item.ical_uid || item.id || randomUUID()
   const type = item.type === 'task' ? 'VTODO' : 'VEVENT'
   const lines = [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//Kumo//Mail Client//EN',
-    'CALSCALE:GREGORIAN',
     `BEGIN:${type}`,
     `UID:${escapeICal(uid)}`,
     `DTSTAMP:${formatICalDate(Date.now())}`,
     `SUMMARY:${escapeICal(item.title)}`
   ]
+  if (item.recurrence_id) lines.push(`RECURRENCE-ID:${item.recurrence_id}`)
   if (type === 'VEVENT') {
+    const allDayEnd = item.all_day
+      ? addLocalDays(item.end_ts || item.start_ts, 1)
+      : item.end_ts || item.start_ts
     lines.push(
       item.all_day
         ? `DTSTART;VALUE=DATE:${formatICalDate(item.start_ts, true)}`
         : `DTSTART:${formatICalDate(item.start_ts)}`,
       item.all_day
-        ? `DTEND;VALUE=DATE:${formatICalDate(item.end_ts || item.start_ts, true)}`
-        : `DTEND:${formatICalDate(item.end_ts || item.start_ts)}`,
+        ? `DTEND;VALUE=DATE:${formatICalDate(allDayEnd, true)}`
+        : `DTEND:${formatICalDate(allDayEnd)}`,
       `STATUS:${item.status || 'CONFIRMED'}`
     )
     if (item.location) lines.push(`LOCATION:${escapeICal(item.location)}`)
@@ -130,8 +154,78 @@ export function buildCalendarObject(item) {
   }
   if (item.description) lines.push(`DESCRIPTION:${escapeICal(item.description)}`)
   if (item.rrule) lines.push(`RRULE:${item.rrule}`)
-  lines.push(`END:${type}`, 'END:VCALENDAR', '')
-  return { uid, raw: lines.join('\r\n') }
+  lines.push(`END:${type}`)
+  return { uid, type, lines }
+}
+
+function componentIdentity(lines) {
+  const uid = lines.find(line => /^UID:/i.test(line))?.slice(4) || ''
+  const recurrenceId = lines.find(line => /^RECURRENCE-ID(?:;[^:]*)?:/i.test(line))?.split(':').slice(1).join(':') || ''
+  return { uid: unescapeICal(uid), recurrenceId }
+}
+
+function replaceCalendarComponent(raw, item, componentLines) {
+  const lines = unfold(raw).replace(/\r/g, '').split('\n')
+  const targetUid = item.ical_uid || item.id
+  const targetRecurrenceId = item.recurrence_id || ''
+  const type = componentLines[0].slice('BEGIN:'.length)
+  let start = -1
+  let depth = 0
+
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].toUpperCase() === `BEGIN:${type}`) {
+      if (depth === 0) start = i
+      depth++
+    } else if (lines[i].toUpperCase() === `END:${type}` && depth > 0) {
+      depth--
+      if (depth === 0 && start >= 0) {
+        const block = lines.slice(start, i + 1)
+        const identity = componentIdentity(block)
+        if (identity.uid === targetUid && identity.recurrenceId === targetRecurrenceId) {
+          const replaceProps = new Set([
+            'DTSTAMP', 'SUMMARY', 'DTSTART', 'DTEND', 'DUE', 'STATUS',
+            'LOCATION', 'ORGANIZER', 'ATTENDEE', 'DESCRIPTION', 'RRULE'
+          ])
+          const preserved = [block[0]]
+          let nestedDepth = 0
+          for (const line of block.slice(1, -1)) {
+            if (/^BEGIN:/i.test(line)) nestedDepth++
+            const prop = line.split(/[;:]/, 1)[0].toUpperCase()
+            if (nestedDepth > 0 || !replaceProps.has(prop)) preserved.push(line)
+            if (/^END:/i.test(line)) nestedDepth--
+          }
+          const insertion = componentLines.slice(1, -1).filter(line => {
+            const prop = line.split(/[;:]/, 1)[0].toUpperCase()
+            return replaceProps.has(prop)
+          })
+          const nestedIndex = preserved.findIndex((line, index) => index > 0 && /^BEGIN:/i.test(line))
+          const insertAt = nestedIndex < 0 ? preserved.length : nestedIndex
+          preserved.splice(insertAt, 0, ...insertion)
+          preserved.push(block.at(-1))
+          lines.splice(start, block.length, ...preserved)
+          return `${lines.join('\r\n').replace(/\r?\n*$/, '')}\r\n`
+        }
+        start = -1
+      }
+    }
+  }
+  throw new Error('The original iCalendar component could not be found')
+}
+
+export function buildCalendarObject(item) {
+  const component = buildCalendarComponent(item)
+  const raw = item.raw_ical
+    ? replaceCalendarComponent(item.raw_ical, item, component.lines)
+    : [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//Kumo//Mail Client//EN',
+        'CALSCALE:GREGORIAN',
+        ...component.lines,
+        'END:VCALENDAR',
+        ''
+      ].join('\r\n')
+  return { uid: component.uid, raw }
 }
 
 export function buildCalendarReply(invite, response, attendeeEmail, attendeeName = '') {
@@ -141,9 +235,39 @@ export function buildCalendarReply(invite, response, attendeeEmail, attendeeName
     declined: 'DECLINED'
   }[response]
   if (!partstat) throw new Error('Unsupported RSVP response')
-  const attendee = { email: attendeeEmail, name: attendeeName, partstat }
-  const { raw } = buildCalendarObject({ ...invite, attendees: [attendee] })
-  return raw.replace('CALSCALE:GREGORIAN', 'METHOD:REPLY')
+  const uid = invite.ical_uid || invite.id
+  const organizer = typeof invite.organizer === 'string'
+    ? { email: invite.organizer }
+    : invite.organizer
+  const attendeeParams = [
+    attendeeName ? `CN="${escapeICal(attendeeName)}"` : null,
+    `PARTSTAT=${partstat}`,
+    'ROLE=REQ-PARTICIPANT'
+  ].filter(Boolean).join(';')
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Kumo//Mail Client//EN',
+    'METHOD:REPLY',
+    'BEGIN:VEVENT',
+    `UID:${escapeICal(uid)}`,
+    `DTSTAMP:${formatICalDate(Date.now())}`
+  ]
+  if (invite.sequence != null) lines.push(`SEQUENCE:${invite.sequence}`)
+  if (invite.recurrence_id) lines.push(`RECURRENCE-ID:${invite.recurrence_id}`)
+  if (invite.all_day) {
+    lines.push(`DTSTART;VALUE=DATE:${formatICalDate(invite.start_ts, true)}`)
+  } else {
+    lines.push(`DTSTART:${formatICalDate(invite.start_ts)}`)
+  }
+  if (organizer?.email) lines.push(`ORGANIZER:MAILTO:${organizer.email}`)
+  lines.push(
+    `ATTENDEE;${attendeeParams}:MAILTO:${attendeeEmail}`,
+    'END:VEVENT',
+    'END:VCALENDAR',
+    ''
+  )
+  return lines.join('\r\n')
 }
 
 // Convert wall-clock time in a named IANA timezone to UTC milliseconds.
@@ -168,7 +292,7 @@ function parseICalDate(val, tzid) {
     const y = parseInt(val.slice(0, 4))
     const m = parseInt(val.slice(4, 6)) - 1
     const d = parseInt(val.slice(6, 8))
-    return { ts: new Date(Date.UTC(y, m, d)).getTime(), allDay: true }
+    return { ts: new Date(y, m, d).getTime(), allDay: true }
   }
   const m = val.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/)
   if (m) {
@@ -195,7 +319,8 @@ function _parseProp(rawProp, val) {
 }
 
 export function parseICalEvents(icsData) {
-  const unfolded = unfold(icsData)
+  const decoded = decodeXmlEntities(icsData)
+  const unfolded = unfold(decoded)
   const items = []
   const method = unfolded.match(/(?:^|\r?\n)METHOD:([^\r\n]+)/i)?.[1]?.toUpperCase() || null
 
@@ -207,7 +332,8 @@ export function parseICalEvents(icsData) {
       const ci = line.indexOf(':')
       if (ci < 0) continue
       const rawProp = line.slice(0, ci)
-      const val = line.slice(ci + 1).replace(/\\n/g, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';')
+      const rawVal = line.slice(ci + 1)
+      const val = unescapeICal(rawVal)
       const prop = rawProp.split(';')[0].toUpperCase()
       switch (prop) {
         case 'UID':         ev.uid = val; break
@@ -216,6 +342,8 @@ export function parseICalEvents(icsData) {
         case 'LOCATION':    ev.location = val; break
         case 'STATUS':      ev.status = val.toUpperCase(); break
         case 'RRULE':       ev.rrule = val; break
+        case 'RECURRENCE-ID': ev.recurrence_id = rawVal; break
+        case 'SEQUENCE':     ev.sequence = Number.parseInt(val, 10) || 0; break
         case 'ORGANIZER':   ev.organizer = parseMailAddress(rawProp, val); break
         case 'DTSTART': { const p = _parseProp(rawProp, val); if (p) { ev.start_ts = p.ts; ev.all_day = p.allDay } break }
         case 'DTEND':   { const p = _parseProp(rawProp, val); if (p)   ev.end_ts = p.ts; break }
@@ -223,10 +351,15 @@ export function parseICalEvents(icsData) {
       }
     }
     if (ev.uid && ev.title) {
+      const localId = ev.recurrence_id ? `${ev.uid}::${ev.recurrence_id}` : ev.uid
+      const endTs = ev.all_day && ev.end_ts > ev.start_ts
+        ? addLocalDays(ev.end_ts, -1)
+        : ev.end_ts || ev.start_ts || 0
       items.push({
-        id: ev.uid, type: 'event',
+        id: localId, ical_uid: ev.uid, recurrence_id: ev.recurrence_id || null,
+        sequence: ev.sequence || 0, raw_ical: decoded, type: 'event',
         title: ev.title, description: ev.description || null, location: ev.location || null,
-        start_ts: ev.start_ts || 0, end_ts: ev.end_ts || ev.start_ts || 0,
+        start_ts: ev.start_ts || 0, end_ts: endTs,
         all_day: ev.all_day || false, rrule: ev.rrule || null,
         status: ev.status || 'CONFIRMED', organizer: ev.organizer || null,
         attendees: ev.attendees || [], method
@@ -242,7 +375,7 @@ export function parseICalEvents(icsData) {
       const ci = line.indexOf(':')
       if (ci < 0) continue
       const rawProp = line.slice(0, ci)
-      const val = line.slice(ci + 1).replace(/\\n/g, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';')
+      const val = unescapeICal(line.slice(ci + 1))
       const prop = rawProp.split(';')[0].toUpperCase()
       switch (prop) {
         case 'UID':         td.uid = val; break
@@ -256,7 +389,8 @@ export function parseICalEvents(icsData) {
     if (td.uid && td.title) {
       const ts = td.start_ts || td.end_ts || 0
       items.push({
-        id: td.uid, type: 'task',
+        id: td.uid, ical_uid: td.uid, recurrence_id: null,
+        sequence: 0, raw_ical: decoded, type: 'task',
         title: td.title, description: td.description || null, location: null,
         start_ts: ts, end_ts: td.end_ts || ts,
         all_day: td.all_day ?? td.due_allDay ?? true,
@@ -351,8 +485,17 @@ export async function discoverCalendars(email, password) {
   // Get calendar home
   res = await followRedirects(principalFull, 'PROPFIND', auth, `<?xml version="1.0" encoding="UTF-8"?>
 <propfind xmlns="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
-  <prop><cal:calendar-home-set/></prop>
+  <prop>
+    <cal:calendar-home-set/>
+    <cal:schedule-outbox-URL/>
+  </prop>
 </propfind>`, { 'Depth': '0' })
+
+  let scheduleOutbox = extractXmlProp(res.body, 'schedule-outbox-URL')
+  if (scheduleOutbox) scheduleOutbox = extractXmlProp(scheduleOutbox, 'href') || scheduleOutbox
+  const scheduleOutboxUrl = scheduleOutbox
+    ? new URL(scheduleOutbox.trim(), principalFull).href
+    : null
 
   let calHome = extractXmlProp(res.body, 'calendar-home-set')
   if (calHome) {
@@ -416,6 +559,10 @@ export async function discoverCalendars(email, password) {
     })
   }
 
+  Object.defineProperty(calendars, 'scheduleOutboxUrl', {
+    value: scheduleOutboxUrl,
+    enumerable: false
+  })
   return calendars
 }
 
@@ -423,15 +570,6 @@ export async function discoverCalendars(email, password) {
 
 async function fetchCalendarEvents(calUrl, auth) {
   logCal(`Fetching events from "${calUrl}"`)
-  // Time range: past 30 days to future 180 days
-  const now = new Date()
-  const start = new Date(now.getTime() - 30 * 86400000)
-  const end = new Date(now.getTime() + 180 * 86400000)
-
-  function iCalDate(d) {
-    return d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
-  }
-
   const body = `<?xml version="1.0" encoding="UTF-8"?>
 <cal:calendar-query xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
   <d:prop>
@@ -440,9 +578,7 @@ async function fetchCalendarEvents(calUrl, auth) {
   </d:prop>
   <cal:filter>
     <cal:comp-filter name="VCALENDAR">
-      <cal:comp-filter name="VEVENT">
-        <cal:time-range start="${iCalDate(start)}" end="${iCalDate(end)}"/>
-      </cal:comp-filter>
+      <cal:comp-filter name="VEVENT"/>
     </cal:comp-filter>
   </cal:filter>
 </cal:calendar-query>`
@@ -453,23 +589,57 @@ async function fetchCalendarEvents(calUrl, auth) {
   })
 
   if (res.status >= 400) {
-    logCal(`REPORT failed (${res.status}), trying PROPFIND...`)
+    logCal(`Calendar query failed (${res.status}), trying multiget discovery...`)
     const fallback = await followRedirects(calUrl, 'PROPFIND', auth, `<?xml version="1.0" encoding="UTF-8"?>
-<propfind xmlns="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
-  <prop><getetag/><cal:calendar-data/></prop>
+<propfind xmlns="DAV:">
+  <prop><getetag/><resourcetype/></prop>
 </propfind>`)
     if (fallback.status >= 400) {
       logCal(`PROPFIND failed (${fallback.status}), no events found`)
       return []
     }
-    const events = _parseEventResponses(fallback.body)
-    logCal(`PROPFIND: found ${events.length} events`)
+    const hrefs = extractAllMatches(fallback.body, 'response')
+      .filter(response => !/<(?:[^:>]+:)?collection(?:\s|\/|>)/i.test(response))
+      .map(response => extractXmlProp(response, 'href'))
+      .filter(Boolean)
+    if (hrefs.length === 0) return []
+    const multiget = await followRedirects(
+      calUrl,
+      'REPORT',
+      auth,
+      buildCalendarMultigetBody(hrefs),
+      { 'Content-Type': 'application/xml; charset=utf-8', Depth: '0' }
+    )
+    if (multiget.status >= 400) throw new Error(`CalDAV multiget failed: ${multiget.status}`)
+    const events = _parseEventResponses(multiget.body)
+    logCal(`Calendar multiget: found ${events.length} events`)
     return events
   }
 
   const events = _parseEventResponses(res.body)
   logCal(`REPORT: found ${events.length} events`)
   return events
+}
+
+function escapeXml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+export function buildCalendarMultigetBody(hrefs) {
+  const hrefLines = hrefs.map(href => `  <d:href>${escapeXml(href)}</d:href>`).join('\n')
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<cal:calendar-multiget xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
+  <d:prop>
+    <d:getetag/>
+    <cal:calendar-data/>
+  </d:prop>
+${hrefLines}
+</cal:calendar-multiget>`
 }
 
 function _parseEventResponses(xmlBody) {
@@ -521,33 +691,53 @@ async function fetchCalendarTodos(calUrl, auth) {
   return items
 }
 
-export async function syncCalendar(email, password, enabledHrefs = null) {
+export async function syncCalendar(email, password, { disabledHrefs = [] } = {}) {
   logCal(`Calendar sync started for ${email}`)
   const auth = { user: email, pass: password }
   const sources = await discoverCalendars(email, password)
   logCal(`Found ${sources.length} calendars: ${sources.map(c => c.name).join(', ')}`)
   const allItems = []
+  const succeededHrefs = []
+  const failedHrefs = []
+  const disabled = new Set(disabledHrefs)
 
   for (const cal of sources) {
-    // If caller specified which sources are enabled, skip others
-    if (enabledHrefs && !enabledHrefs.includes(cal.href)) continue
+    if (disabled.has(cal.href)) continue
 
     try {
+      const calendarItems = []
       if (cal.supportsEvents !== false) {
         const events = await fetchCalendarEvents(cal.href, auth)
-        for (const ev of events) allItems.push({ ...ev, calendar_id: cal.name, calendar_href: cal.href })
+        for (const ev of events) {
+          calendarItems.push({
+            ...ev,
+            id: `${cal.href}::${ev.id}`,
+            calendar_id: cal.name,
+            calendar_href: cal.href
+          })
+        }
       }
       if (cal.supportsTodos) {
         const todos = await fetchCalendarTodos(cal.href, auth)
-        for (const td of todos) allItems.push({ ...td, calendar_id: cal.name, calendar_href: cal.href })
+        for (const td of todos) {
+          calendarItems.push({
+            ...td,
+            id: `${cal.href}::${td.id}`,
+            calendar_id: cal.name,
+            calendar_href: cal.href
+          })
+        }
       }
+      allItems.push(...calendarItems)
+      succeededHrefs.push(cal.href)
     } catch (err) {
+      failedHrefs.push(cal.href)
       logWarn(`CalDAV calendar error "${cal.name}": ${err.message}`)
     }
   }
 
   logCal(`Calendar sync completed: ${allItems.filter(i => i.type !== 'task').length} events, ${allItems.filter(i => i.type === 'task').length} reminders`)
-  return { items: allItems, sources }
+  return { items: allItems, sources, succeededHrefs, failedHrefs }
 }
 
 export async function saveCalendarItem(email, password, item) {
@@ -587,10 +777,40 @@ export async function saveCalendarItem(email, password, item) {
   }
   return {
     ...item,
-    id: uid,
+    id: item.id || uid,
+    ical_uid: uid,
     href: response.finalUrl || href,
     calendar_href: calendarHref,
-    etag: String(response.headers.etag || item.etag || '').replace(/"/g, '')
+    etag: String(response.headers.etag || item.etag || '').replace(/"/g, ''),
+    raw_ical: raw
+  }
+}
+
+export async function sendCalendarReply(email, password, invite, response, attendeeName = '') {
+  const organizerEmail = typeof invite.organizer === 'string'
+    ? invite.organizer
+    : invite.organizer?.email
+  if (!organizerEmail) throw new Error('Invitation organizer is missing')
+
+  const calendars = await discoverCalendars(email, password)
+  const outboxUrl = calendars.scheduleOutboxUrl
+  if (!outboxUrl) throw new Error('The CalDAV scheduling outbox is not available')
+
+  const content = buildCalendarReply(invite, response, email, attendeeName || email)
+  const result = await followRedirects(
+    outboxUrl,
+    'POST',
+    { user: email, pass: password },
+    content,
+    {
+      'Content-Type': 'text/calendar; charset=utf-8',
+      Originator: `mailto:${email}`,
+      Recipient: `mailto:${organizerEmail}`,
+      Depth: '0'
+    }
+  )
+  if (result.status < 200 || result.status >= 300) {
+    throw new Error(`CalDAV scheduling failed: ${describeDavError(result)}`)
   }
 }
 

@@ -252,8 +252,8 @@ export default function CalendarPanel() {
 
   const enabledHrefs = new Set(sources.filter(s => s.enabled).map(s => s.href))
   const allItems = (state.calendar.events || []).filter(i =>
-    // Show all when: no sources loaded, or event has no href (old DB rows), or href matches an enabled source
-    enabledHrefs.size === 0 || !i.calendar_href || enabledHrefs.has(i.calendar_href)
+    // Keep legacy rows visible, but honor the case where every loaded source is disabled.
+    sources.length === 0 || !i.calendar_href || enabledHrefs.has(i.calendar_href)
   )
   const onlyEvents = allItems.filter(i => i.type !== 'task')
   const onlyTodos  = allItems.filter(i => i.type === 'task')

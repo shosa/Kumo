@@ -184,6 +184,12 @@ export async function initDB() {
     logErr('Database migration failed', { version: 9, fatal: false, error: err.message })
   }
 
+  try {
+    _migrate11(db)
+  } catch (err) {
+    logErr('Database migration failed', { version: 11, fatal: false, error: err.message })
+  }
+
   persistDB()
   return db
 }
@@ -366,6 +372,7 @@ function _migrate2(d) {
       etag          TEXT,
       href          TEXT,
       vcard         TEXT,
+      addressbook_href TEXT,
       source        TEXT DEFAULT 'carddav',
       updated_at    INTEGER DEFAULT (strftime('%s','now') * 1000)
     )
@@ -391,6 +398,10 @@ function _migrate2(d) {
       attendees     TEXT DEFAULT '[]',
       etag          TEXT,
       href          TEXT,
+      ical_uid      TEXT,
+      recurrence_id TEXT,
+      sequence      INTEGER DEFAULT 0,
+      raw_ical      TEXT,
       updated_at    INTEGER DEFAULT (strftime('%s','now') * 1000)
     )
   `)
@@ -584,6 +595,23 @@ function _migrate10(d) {
 
   try { d.run(`ALTER TABLE calendar_sources ADD COLUMN writable INTEGER DEFAULT 1`) } catch { /* already exists */ }
   d.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('schemaVersion', '10')`)
+}
+
+function _migrate11(d) {
+  let ver = 0
+  try {
+    const s = d.prepare(`SELECT value FROM settings WHERE key = 'schemaVersion'`)
+    if (s.step()) ver = parseInt(JSON.parse(s.getAsObject().value), 10) || 0
+    s.free()
+  } catch { /* ignore */ }
+  if (ver >= 11) return
+
+  try { d.run(`ALTER TABLE contacts ADD COLUMN addressbook_href TEXT`) } catch { /* already exists */ }
+  try { d.run(`ALTER TABLE calendar_events ADD COLUMN ical_uid TEXT`) } catch { /* already exists */ }
+  try { d.run(`ALTER TABLE calendar_events ADD COLUMN recurrence_id TEXT`) } catch { /* already exists */ }
+  try { d.run(`ALTER TABLE calendar_events ADD COLUMN sequence INTEGER DEFAULT 0`) } catch { /* already exists */ }
+  try { d.run(`ALTER TABLE calendar_events ADD COLUMN raw_ical TEXT`) } catch { /* already exists */ }
+  d.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('schemaVersion', '11')`)
 }
 
 export function getDB() {
@@ -1668,8 +1696,8 @@ export function upsertContact(contact) {
     INSERT INTO contacts
       (id, account_email, display_name, first_name, last_name, email, emails,
        phone, phones, organization, title, notes, birthday, photo_url, social_profiles,
-       etag, href, vcard, source, updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       etag, href, vcard, addressbook_href, source, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET
       display_name    = excluded.display_name,
       first_name      = excluded.first_name,
@@ -1687,6 +1715,7 @@ export function upsertContact(contact) {
       etag            = excluded.etag,
       href            = excluded.href,
       vcard           = excluded.vcard,
+      addressbook_href = excluded.addressbook_href,
       source          = excluded.source,
       updated_at      = excluded.updated_at
   `, [
@@ -1698,7 +1727,7 @@ export function upsertContact(contact) {
     contact.birthday || null, contact.photo_url || null,
     JSON.stringify(contact.social_profiles || []),
     contact.etag || null, contact.href || null, contact.vcard || null,
-    contact.source || 'carddav', Date.now()
+    contact.addressbook_href || null, contact.source || 'carddav', Date.now()
   ])
   scheduleSave()
 }
@@ -1753,6 +1782,17 @@ export function deleteContact(id) {
   scheduleSave()
 }
 
+export function deleteContactsByIds(accountEmail, ids) {
+  if (!ids?.length) return
+  const d = getDB()
+  const placeholders = ids.map(() => '?').join(',')
+  d.run(
+    `DELETE FROM contacts WHERE account_email = ? AND source = 'carddav' AND id IN (${placeholders})`,
+    [accountEmail, ...ids]
+  )
+  scheduleSave()
+}
+
 // ── calendar source helpers ───────────────────────────────────────────────────
 
 export function upsertCalendarSource(src) {
@@ -1791,6 +1831,20 @@ export function setCalendarSourceEnabled(href, enabled) {
   scheduleSave()
 }
 
+export function deleteCalendarSourcesNotIn(accountEmail, hrefs) {
+  const d = getDB()
+  if (!hrefs?.length) {
+    d.run(`DELETE FROM calendar_sources WHERE account_email = ?`, [accountEmail])
+  } else {
+    const placeholders = hrefs.map(() => '?').join(',')
+    d.run(
+      `DELETE FROM calendar_sources WHERE account_email = ? AND href NOT IN (${placeholders})`,
+      [accountEmail, ...hrefs]
+    )
+  }
+  scheduleSave()
+}
+
 // ── calendar helpers ──────────────────────────────────────────────────────────
 
 export function upsertEvent(event) {
@@ -1798,8 +1852,9 @@ export function upsertEvent(event) {
   d.run(`
     INSERT INTO calendar_events
       (id, account_email, calendar_id, calendar_href, title, description, location,
-       start_ts, end_ts, all_day, rrule, status, organizer, attendees, etag, href, type, updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       start_ts, end_ts, all_day, rrule, status, organizer, attendees, etag, href, type,
+       ical_uid, recurrence_id, sequence, raw_ical, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET
       title          = excluded.title,
       description    = excluded.description,
@@ -1815,6 +1870,10 @@ export function upsertEvent(event) {
       href           = excluded.href,
       type           = excluded.type,
       calendar_href  = excluded.calendar_href,
+      ical_uid       = excluded.ical_uid,
+      recurrence_id  = excluded.recurrence_id,
+      sequence       = excluded.sequence,
+      raw_ical       = excluded.raw_ical,
       updated_at     = excluded.updated_at
   `, [
     event.id, event.account_email || null, event.calendar_id || null,
@@ -1827,7 +1886,9 @@ export function upsertEvent(event) {
       : null,
     JSON.stringify(event.attendees || []),
     event.etag || null, event.href || null,
-    event.type || 'event', Date.now()
+    event.type || 'event', event.ical_uid || event.id,
+    event.recurrence_id || null, event.sequence || 0,
+    event.raw_ical || null, Date.now()
   ])
   scheduleSave()
 }
@@ -1858,6 +1919,17 @@ export function deleteEvents(accountEmail, calendarId) {
   } else {
     d.run(`DELETE FROM calendar_events WHERE account_email = ?`, [accountEmail])
   }
+  scheduleSave()
+}
+
+export function deleteEventsByCalendarHrefs(accountEmail, hrefs) {
+  if (!hrefs?.length) return
+  const d = getDB()
+  const placeholders = hrefs.map(() => '?').join(',')
+  d.run(
+    `DELETE FROM calendar_events WHERE account_email = ? AND calendar_href IN (${placeholders})`,
+    [accountEmail, ...hrefs]
+  )
   scheduleSave()
 }
 

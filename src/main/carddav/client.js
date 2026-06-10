@@ -2,6 +2,7 @@ import { request } from 'https'
 import { URL } from 'url'
 import { randomUUID } from 'crypto'
 import { logContact, logWarn, logErr } from '../logger.js'
+import { assertSafeDavUrl } from '../dav/http.js'
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
@@ -35,12 +36,12 @@ function davRequest(url, method, auth, body, headers = {}) {
 }
 
 async function followRedirects(url, method, auth, body, headers, maxRedirects = 5) {
-  let current = url
+  let current = assertSafeDavUrl(url).href
   for (let i = 0; i < maxRedirects; i++) {
     const res = await davRequest(current, method, auth, body, headers)
     if (res.status >= 300 && res.status < 400 && res.headers.location) {
       const loc = res.headers.location
-      current = loc.startsWith('http') ? loc : new URL(loc, current).href
+      current = assertSafeDavUrl(new URL(loc, current)).href
     } else {
       return { ...res, finalUrl: current }
     }
@@ -73,6 +74,34 @@ function escapeVCard(value) {
     .replace(/\n/g, '\\n')
     .replace(/,/g, '\\,')
     .replace(/;/g, '\\;')
+}
+
+function unescapeVCard(value) {
+  return String(value || '')
+    .replace(/\\n/gi, '\n')
+    .replace(/\\([\\,;])/g, '$1')
+}
+
+function splitEscapedVCard(value, separator = ';') {
+  const parts = []
+  let current = ''
+  let escaped = false
+  for (const char of String(value || '')) {
+    if (escaped) {
+      current += `\\${char}`
+      escaped = false
+    } else if (char === '\\') {
+      escaped = true
+    } else if (char === separator) {
+      parts.push(unescapeVCard(current))
+      current = ''
+    } else {
+      current += char
+    }
+  }
+  if (escaped) current += '\\'
+  parts.push(unescapeVCard(current))
+  return parts
 }
 
 export function buildVCard(contact) {
@@ -121,20 +150,21 @@ export function parseVCard(raw) {
     // Strip vCard group prefix (e.g. "item1.TEL;type=pref" → "TEL;type=pref")
     const rawProp = line.slice(0, colonIdx).replace(/^[^.]+\./i, '')
     const prop = rawProp.toUpperCase()
-    const val  = line.slice(colonIdx + 1).trim()
+    const rawVal = line.slice(colonIdx + 1).trim()
+    const val = unescapeVCard(rawVal)
 
     if (prop === 'UID')                result.uid = val
     else if (prop === 'FN')            result.display_name = val
     else if (prop === 'N') {
-      const parts = val.split(';')
+      const parts = splitEscapedVCard(rawVal)
       result.last_name  = (parts[0] || '').trim()
       result.first_name = (parts[1] || '').trim()
     }
     else if (prop.startsWith('EMAIL')) result.emails.push(val)
     else if (prop.startsWith('TEL'))   result.phones.push(val)
-    else if (prop.startsWith('ORG'))   result.organization = val.split(';')[0].trim()
+    else if (prop.startsWith('ORG'))   result.organization = splitEscapedVCard(rawVal)[0].trim()
     else if (prop === 'TITLE')         result.title = val
-    else if (prop === 'NOTE')          result.notes = val.replace(/\\n/g, '\n')
+    else if (prop === 'NOTE')          result.notes = val
     else if (prop.startsWith('BDAY'))  result.birthday = val
     else if (prop.startsWith('ADR'))   result.address = (result.address || '') + val.replace(/;+/g, ', ').replace(/^[, ]+|[, ]+$/g, '')
     else if (prop.startsWith('X-SOCIALPROFILE')) {
@@ -401,18 +431,22 @@ export async function syncContacts(email, password) {
   const addressBooks = await discoverAddressBook(email, password)
   logContact(`Found ${addressBooks.length} address books: ${addressBooks.map(a => a.name).join(', ')}`)
   const allContacts = []
+  const succeededHrefs = []
+  const failedHrefs = []
 
   for (const ab of addressBooks) {
     try {
       const contacts = await fetchVCards(ab.href, auth)
-      allContacts.push(...contacts)
+      allContacts.push(...contacts.map(contact => ({ ...contact, addressbook_href: ab.href })))
+      succeededHrefs.push(ab.href)
     } catch (err) {
+      failedHrefs.push(ab.href)
       logWarn(`CardDAV address book error "${ab.name}": ${err.message}`)
     }
   }
 
   logContact(`Contact sync completed: ${allContacts.length} contacts total`)
-  return allContacts
+  return { contacts: allContacts, addressBooks, succeededHrefs, failedHrefs }
 }
 
 export async function saveContact(email, password, contact) {

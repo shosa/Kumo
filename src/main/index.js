@@ -10,9 +10,9 @@ import {
   getMailRules, saveMailRule, deleteMailRule, messageMatchesRule,
   getSyncState,
   getAttachmentsMeta, markAttachmentDownloaded,
-  upsertContact, getContacts, searchContacts, deleteContacts, deleteContact,
-  upsertEvent, getEvents, deleteEvents, deleteEvent,
-  upsertCalendarSource, getCalendarSources, setCalendarSourceEnabled,
+  upsertContact, getContacts, searchContacts, deleteContacts, deleteContact, deleteContactsByIds,
+  upsertEvent, getEvents, deleteEvents, deleteEvent, deleteEventsByCalendarHrefs,
+  upsertCalendarSource, getCalendarSources, setCalendarSourceEnabled, deleteCalendarSourcesNotIn,
   getAttachmentSnapshots, getMessageSnapshots, moveMessagesOptimistic, removeMessages,
   persistDBImmediate, recalcFolderUnread, getSyncQueueCount,
   getSenderLogoCache, setSenderLogoCache
@@ -27,8 +27,9 @@ import {
   syncCalendar,
   saveCalendarItem,
   deleteCalendarItemRemote,
-  buildCalendarReply
+  sendCalendarReply
 } from './caldav/client.js'
+import { getCalendarsToReplace, getContactsToDelete } from './dav/syncPolicy.js'
 import { initLogger, logContact, logDebug, logErr, logInfo, logSync } from './logger.js'
 import { initUpdater } from './updater.js'
 import { replayPendingSyncOperations } from './startupSync.js'
@@ -1396,7 +1397,8 @@ ipcMain.handle('rules:delete', async (_e, id) => {
 
 ipcMain.handle('contacts:sync', async (_e, email, password) => {
   try {
-    const contacts = await syncContacts(email, password)
+    const localContacts = getContacts(email)
+    const { contacts, failedHrefs } = await syncContacts(email, password)
     logContact('[contacts:sync] Contacts fetched, starting upsert', { count: contacts.length })
     let saved = 0, failed = 0
     for (const c of contacts) {
@@ -1412,7 +1414,9 @@ ipcMain.handle('contacts:sync', async (_e, email, password) => {
         })
       }
     }
-    logContact('[contacts:sync] Completed', { saved, failed })
+    const deletedIds = getContactsToDelete(localContacts, contacts, failedHrefs)
+    deleteContactsByIds(email, deletedIds)
+    logContact('[contacts:sync] Completed', { saved, failed, deleted: deletedIds.length })
     return { ok: true, count: saved }
   } catch (err) {
     logErr('[contacts:sync] Failed', { error: err.message })
@@ -1506,25 +1510,35 @@ ipcMain.handle('contacts:dump-raw', async (_e, email, password) => {
 
 ipcMain.handle('calendar:sync', async (_e, email, password) => {
   try {
-    const { items, sources } = await syncCalendar(email, password)
+    const previousSources = getCalendarSources(email)
+    const disabledHrefs = previousSources.filter(source => !source.enabled).map(source => source.href)
+    const { items, sources, succeededHrefs, failedHrefs } = await syncCalendar(
+      email,
+      password,
+      { disabledHrefs }
+    )
 
     // Upsert all discovered sources (ON CONFLICT preserves user's enabled state)
     for (const src of sources) {
       upsertCalendarSource({ ...src, account_email: email })
     }
+    const currentHrefs = sources.map(source => source.href)
+    const removedHrefs = previousSources
+      .filter(source => !currentHrefs.includes(source.href))
+      .map(source => source.href)
+    deleteCalendarSourcesNotIn(email, currentHrefs)
 
-    // Read which sources the user has enabled
-    const dbSources = getCalendarSources(email)
-    const enabledHrefs = new Set(dbSources.filter(s => s.enabled).map(s => s.href))
-
-    // Wipe previous events and re-save only from enabled sources
-    deleteEvents(email)
+    // Replace only complete calendars. Failed calendars keep their last good cache.
+    const replaceHrefs = getCalendarsToReplace({
+      succeededHrefs,
+      failedHrefs,
+      disabledHrefs: [...disabledHrefs, ...removedHrefs]
+    })
+    deleteEventsByCalendarHrefs(email, replaceHrefs)
     let saved = 0
     for (const item of items) {
-      if (enabledHrefs.size === 0 || enabledHrefs.has(item.calendar_href)) {
-        upsertEvent({ ...item, account_email: email })
-        saved++
-      }
+      upsertEvent({ ...item, account_email: email })
+      saved++
     }
     return { ok: true, count: saved }
   } catch (err) {
@@ -1578,35 +1592,25 @@ ipcMain.handle('calendar:respond', async (_e, invite, response, email) => {
     const accountEmail = email || getOperationAccountEmail()
     const creds = await getCredentials(accountEmail)
     if (!creds) throw new Error(`No credentials for ${accountEmail}`)
-    const organizerEmail = typeof invite.organizer === 'string'
-      ? invite.organizer
-      : invite.organizer?.email
-    if (!organizerEmail) throw new Error('Invitation organizer is missing')
-    const content = buildCalendarReply(invite, response, creds.email, creds.email)
-    await sendEmail(creds.email, creds.password, {
-      to: organizerEmail,
-      subject: `Re: ${invite.title || 'Invitation'}`,
-      text: `${response}: ${invite.title || 'Invitation'}`,
-      icalEvent: { method: 'REPLY', filename: 'reply.ics', content }
-    })
-    const status = {
-      accepted: 'CONFIRMED',
-      tentative: 'TENTATIVE',
-      declined: 'CANCELLED'
-    }[response]
+    await sendCalendarReply(creds.email, creds.password, invite, response, creds.email)
     const attendee = {
       email: creds.email,
       name: creds.email,
       partstat: response === 'accepted' ? 'ACCEPTED' : response === 'declined' ? 'DECLINED' : 'TENTATIVE'
     }
-    const saved = await saveCalendarItem(creds.email, creds.password, {
+    const updated = {
       ...invite,
       account_email: creds.email,
-      status,
       attendees: [...(invite.attendees || []).filter(value =>
-        (typeof value === 'string' ? value : value.email) !== creds.email
+        (typeof value === 'string' ? value : value.email)?.toLowerCase() !== creds.email.toLowerCase()
       ), attendee]
-    })
+    }
+    if (invite.href) {
+      upsertEvent(updated)
+      return { ok: true, event: updated }
+    }
+    if (response === 'declined') return { ok: true, event: updated }
+    const saved = await saveCalendarItem(creds.email, creds.password, updated)
     upsertEvent({ ...saved, account_email: creds.email })
     return { ok: true, event: saved }
   } catch (err) {
